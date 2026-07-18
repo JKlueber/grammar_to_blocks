@@ -5,9 +5,6 @@ export const generator = javascriptGenerator;
 
 generator.INDENT = '  ';
 
-// TODO refine the generated code-generation logic below as needed.
-// https://developers.google.com/blockly/guides/create-custom-blocks/generating-code
-
 generator.forBlock['addressbook'] = function (block: Blockly.Block): string {
   const contacts = generator.statementToCode(block, 'CONTACTS');
   return (contacts);
@@ -15,8 +12,8 @@ generator.forBlock['addressbook'] = function (block: Blockly.Block): string {
 
 generator.forBlock['contact'] = function (block: Blockly.Block): string {
   const name = block.getFieldValue('NAME');
-  const phones = generator.statementToCode(block, 'PHONES');
-  return ("contact " + name + ' ' + "{ " + phones + "} ");
+  const phones_addresses = generator.statementToCode(block, 'PHONES_ADDRESSES');
+  return ("contact " + name + ' ' + "{ " + phones_addresses + "} ");
 };
 
 generator.forBlock['phone'] = function (block: Blockly.Block): string {

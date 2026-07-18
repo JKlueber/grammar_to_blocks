@@ -2,10 +2,8 @@ import * as Blockly from 'blockly';
 import { defineBlocks } from './blocks';
 import { generator } from './generator';
 
-// define custom blocks before setting up the workspace
 defineBlocks();
 
-// set up the Blockly workspace
 const workspace = Blockly.inject('blocklyDiv', {
   toolbox: {
     "kind": "flyoutToolbox",
@@ -18,7 +16,6 @@ const workspace = Blockly.inject('blocklyDiv', {
   }
 });
 
-// show code and errors
 const codeOutput = document.getElementById('codeOutput');
 const errorOutput = document.getElementById('errorOutput');
 
@@ -32,5 +29,4 @@ function generateCode() {
   }
 }
 
-// generate code whenever the workspace changes
 workspace.addChangeListener(generateCode);

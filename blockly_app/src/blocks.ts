@@ -1,24 +1,25 @@
 import * as Blockly from 'blockly';
 
-// Export a function to define our blocks
 export function defineBlocks() {
   Blockly.defineBlocksWithJsonArray(
     [
       {
         "type": "addressbook",
-        "message0": "%1",
+        "message0": "Contacts: %1",
         "args0": [
           {
             "type": "input_statement",
-            "name": "CONTACTS"
+            "name": "CONTACTS",
+            "check": "contact"
           }
         ],
+        "colour": 317,
         "previousStatement": null,
         "nextStatement": null
       },
       {
         "type": "contact",
-        "message0": "contact %1 { %2 }",
+        "message0": "contact Name: %1 { Phones / Addresses: %2 }",
         "args0": [
           {
             "type": "field_input",
@@ -27,15 +28,17 @@ export function defineBlocks() {
           },
           {
             "type": "input_statement",
-            "name": "PHONES"
+            "name": "PHONES_ADDRESSES",
+            "check": "address_or_phone"
           }
         ],
+        "colour": 312,
         "previousStatement": "contact",
         "nextStatement": "contact"
       },
       {
         "type": "phone",
-        "message0": "phone %1",
+        "message0": "phone Number: %1",
         "args0": [
           {
             "type": "field_number",
@@ -43,12 +46,13 @@ export function defineBlocks() {
             "value": 0
           }
         ],
-        "previousStatement": "phone",
-        "nextStatement": "phone"
+        "colour": 86,
+        "previousStatement": "address_or_phone",
+        "nextStatement": "address_or_phone"
       },
       {
         "type": "address",
-        "message0": "address %1",
+        "message0": "address City: %1",
         "args0": [
           {
             "type": "field_input",
@@ -56,8 +60,9 @@ export function defineBlocks() {
             "text": ""
           }
         ],
-        "previousStatement": null,
-        "nextStatement": null
+        "colour": 156,
+        "previousStatement": "address_or_phone",
+        "nextStatement": "address_or_phone"
       }
     ]
   );
