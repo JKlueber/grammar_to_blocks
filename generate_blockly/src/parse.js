@@ -9,7 +9,7 @@ const filename = process.argv[2];
 
 if (!filename) {
     console.error("Usage:");
-    console.error("node parse.js robot.langium");
+    console.error("node generate_blockly/src/parse.js generate_blockly/input/grammar.langium");
     process.exit(1);
 }
 

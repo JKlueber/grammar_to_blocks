@@ -5,64 +5,55 @@ export function defineBlocks() {
   Blockly.defineBlocksWithJsonArray(
     [
       {
-        "type": "program",
+        "type": "addressbook",
         "message0": "%1",
         "args0": [
           {
             "type": "input_statement",
-            "name": "COMMANDS"
+            "name": "CONTACTS"
           }
         ],
         "previousStatement": null,
         "nextStatement": null
       },
       {
-        "type": "command",
-        "message0": "move %1 %2 %3",
+        "type": "contact",
+        "message0": "contact %1 { %2 }",
         "args0": [
           {
             "type": "field_input",
-            "name": "LABEL",
+            "name": "NAME",
             "text": ""
           },
           {
-            "type": "field_dropdown",
-            "name": "DIRECTION",
-            "options": [
-              [
-                "forward",
-                "forward"
-              ],
-              [
-                "backward",
-                "backward"
-              ],
-              [
-                "left",
-                "left"
-              ],
-              [
-                "right",
-                "right"
-              ]
-            ]
-          },
-          {
-            "type": "input_value",
-            "name": "DISTANCE"
+            "type": "input_statement",
+            "name": "PHONES"
           }
         ],
-        "previousStatement": "command",
-        "nextStatement": "command"
+        "previousStatement": "contact",
+        "nextStatement": "contact"
       },
       {
-        "type": "amount",
-        "message0": "%1",
+        "type": "phone",
+        "message0": "phone %1",
         "args0": [
           {
             "type": "field_number",
-            "name": "VALUE",
+            "name": "NUMBER",
             "value": 0
+          }
+        ],
+        "previousStatement": "phone",
+        "nextStatement": "phone"
+      },
+      {
+        "type": "address",
+        "message0": "address %1",
+        "args0": [
+          {
+            "type": "field_input",
+            "name": "CITY",
+            "text": ""
           }
         ],
         "previousStatement": null,

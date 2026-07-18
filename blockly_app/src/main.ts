@@ -10,9 +10,10 @@ const workspace = Blockly.inject('blocklyDiv', {
   toolbox: {
     "kind": "flyoutToolbox",
     "contents": [
-      { "kind": "block", "type": "program" },
-      { "kind": "block", "type": "command" },
-      { "kind": "block", "type": "amount" }
+      { "kind": "block", "type": "addressbook" },
+      { "kind": "block", "type": "contact" },
+      { "kind": "block", "type": "phone" },
+      { "kind": "block", "type": "address" }
     ]
   }
 });

@@ -8,19 +8,23 @@ generator.INDENT = '  ';
 // TODO refine the generated code-generation logic below as needed.
 // https://developers.google.com/blockly/guides/create-custom-blocks/generating-code
 
-generator.forBlock['program'] = function (block: Blockly.Block): string {
-  const commands = generator.statementToCode(block, 'COMMANDS');
-  return (commands);
+generator.forBlock['addressbook'] = function (block: Blockly.Block): string {
+  const contacts = generator.statementToCode(block, 'CONTACTS');
+  return (contacts);
 };
 
-generator.forBlock['command'] = function (block: Blockly.Block): string {
-  const label = block.getFieldValue('LABEL');
-  const direction = block.getFieldValue('DIRECTION');
-  const distance = generator.valueToCode(block, 'DISTANCE', generator.ORDER_NONE) || '';
-  return ("move " + label + ' ' + direction + ' ' + distance + ' ');
+generator.forBlock['contact'] = function (block: Blockly.Block): string {
+  const name = block.getFieldValue('NAME');
+  const phones = generator.statementToCode(block, 'PHONES');
+  return ("contact " + name + ' ' + "{ " + phones + "} ");
 };
 
-generator.forBlock['amount'] = function (block: Blockly.Block): string {
-  const value = block.getFieldValue('VALUE');
-  return (value + ' ');
+generator.forBlock['phone'] = function (block: Blockly.Block): string {
+  const number = block.getFieldValue('NUMBER');
+  return ("phone " + number + ' ');
+};
+
+generator.forBlock['address'] = function (block: Blockly.Block): string {
+  const city = block.getFieldValue('CITY');
+  return ("address " + city + ' ');
 };
