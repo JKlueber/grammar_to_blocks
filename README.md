@@ -1,0 +1,1 @@
+node generate_blockly/src/parse.js generate_blockly/input/robot.langium
