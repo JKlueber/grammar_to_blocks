@@ -23,34 +23,102 @@ function indent(text, spaces) {
 }
 
 /**
- * Rule names that appear as the target of a `+=` list somewhere in the
- * grammar. Their blocks get a self-typed previousStatement/nextStatement
- * so instances of them stack onto each other - the same pattern used by
- * rbac_role / rbac_rule / rbac_resource in the hand-written template.
+ * A "statement" IR part can now name more than one referenced rule -
+ * `(phones+=Phone | addresses+=Address)*` merges into a single input
+ * whose `refRuleNames` is `["Phone", "Address"]`. Every rule named by
+ * such a part needs to be able to (a) drop into that statement input
+ * and (b) connect directly above/below every *other* rule named by the
+ * same part, so the group is given one shared check/type string rather
+ * than each rule keeping its own name as before. A rule that only ever
+ * appears alone (the common `feature+=X` case) still ends up in a
+ * "group" of one, which reduces to its own lowercase name - so existing
+ * single-type grammars generate identical output to before.
+ *
+ * @returns {Map<string,string>} rule name (lowercase) -> shared check string
  */
-function computeStackableRuleNames(irRules) {
+function computeStackTypes(irRules) {
 
-    const stackable = new Set();
+    const typeByRule = new Map();
 
-    for (const rule of irRules)
-        for (const part of rule.parts)
-            if (part.kind === "statement" && part.refRuleName)
-                stackable.add(part.refRuleName.toLowerCase());
+    for (const rule of irRules) {
+        for (const part of rule.parts) {
 
-    return stackable;
+            if (part.kind !== "statement")
+                continue;
+
+            const names = (part.refRuleNames?.length ? part.refRuleNames : (part.refRuleName ? [part.refRuleName] : []))
+                .map(n => n.toLowerCase());
+
+            if (!names.length)
+                continue;
+
+            const check = [...names].sort().join("_or_");
+
+            for (const n of names)
+                typeByRule.set(n, check);
+        }
+    }
+
+    return typeByRule;
 }
 
-function partToArg(part) {
+/**
+ * Turns a grammar feature name into a short human-readable label so
+ * inputs aren't just bare, unlabelled placeholders in the Blockly
+ * workspace (e.g. `name` -> "Name", `phones_addresses` -> "Phones /
+ * Addresses", the auto-generated `anon0` -> "Option").
+ */
+function humanizeFeature(feature) {
+
+    if (/^anon\d+$/.test(feature))
+        return "Option";
+
+    return feature
+        .split("_")
+        .map(word => word.replace(/([a-z0-9])([A-Z])/g, "$1 $2"))
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" / ");
+}
+
+/**
+ * Deterministic hue (0-359) from a rule name, so each block type gets a
+ * stable, distinct colour across regenerations instead of Blockly's
+ * default (every block the same grey).
+ */
+function colourForRule(name) {
+
+    let hash = 0;
+
+    for (const ch of name)
+        hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+
+    return hash % 360;
+}
+
+function partToArg(part, stackTypes) {
 
     const builder = argBuilders[part.kind];
 
     if (!builder)
         throw new Error(`No block-json builder for IR part kind "${part.kind}"`);
 
-    return { ...builder(part), name: toArgName(part.feature) };
+    const arg = { ...builder(part), name: toArgName(part.feature) };
+
+    if (part.kind === "statement") {
+
+        const names = (part.refRuleNames?.length ? part.refRuleNames : (part.refRuleName ? [part.refRuleName] : []))
+            .map(n => n.toLowerCase());
+
+        const checks = [...new Set(names.map(n => stackTypes.get(n)))].filter(Boolean);
+
+        if (checks.length)
+            arg.check = checks.length === 1 ? checks[0] : checks;
+    }
+
+    return arg;
 }
 
-function ruleToBlockJson(rule, stackableRuleNames) {
+function ruleToBlockJson(rule, stackTypes) {
 
     const block = { type: rule.name.toLowerCase(), message0: "", args0: [] };
 
@@ -63,15 +131,21 @@ function ruleToBlockJson(rule, stackableRuleNames) {
             continue;
         }
 
-        block.message0 += `%${placeholder++} `;
-        block.args0.push(partToArg(part));
+        // Label every non-literal input with its grammar feature name so
+        // the block reads like "Name: [___]" instead of a bare, unlabelled
+        // input - this is what actually makes a generated block legible.
+        block.message0 += `${humanizeFeature(part.feature)}: %${placeholder++} `;
+        block.args0.push(partToArg(part, stackTypes));
     }
 
     block.message0 = block.message0.trim();
+    block.colour = colourForRule(rule.name);
 
-    if (stackableRuleNames.has(rule.name.toLowerCase())) {
-        block.previousStatement = block.type;
-        block.nextStatement = block.type;
+    const stackType = stackTypes.get(rule.name.toLowerCase());
+
+    if (stackType) {
+        block.previousStatement = stackType;
+        block.nextStatement = stackType;
     } else {
         block.previousStatement = null;
         block.nextStatement = null;
@@ -86,8 +160,8 @@ function ruleToBlockJson(rule, stackableRuleNames) {
  */
 export function generateBlocksTs(irRules) {
 
-    const stackable = computeStackableRuleNames(irRules);
-    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackable));
+    const stackTypes = computeStackTypes(irRules);
+    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackTypes));
     const blocksLiteral = indent(JSON.stringify(blocks, null, 2), 4);
 
     return `import * as Blockly from 'blockly';
@@ -169,9 +243,6 @@ import { javascriptGenerator } from 'blockly/javascript';
 export const generator = javascriptGenerator;
 
 generator.INDENT = '  ';
-
-// TODO refine the generated code-generation logic below as needed.
-// https://developers.google.com/blockly/guides/create-custom-blocks/generating-code
 
 ${functions}
 `;

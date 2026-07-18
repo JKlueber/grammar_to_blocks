@@ -43,6 +43,35 @@ const nodeHandlers = {
             return;
         }
 
+        // `(phones+=Phone | addresses+=Address)*` - every branch is a
+        // list-valued assignment to a different feature, all repeated by
+        // the same outer `*`. The DSL doesn't care which feature a given
+        // entry came from, only the interleaved order matters, so this
+        // maps onto ONE shared Blockly statement input rather than one
+        // per feature. Visiting each branch separately would only ever
+        // surface the *last* feature parsed into that slot, silently
+        // losing the others - so it's merged into a single IR part here.
+        const allListAssignments = node.elements.every(e =>
+            e.$type === "Assignment" &&
+            e.operator === "+=" &&
+            e.terminal?.$type === "RuleCall"
+        );
+
+        if (allListAssignments) {
+            const refRuleNames = node.elements
+                .map(e => e.terminal.rule?.ref?.name)
+                .filter(Boolean);
+
+            ctx.parts.push({
+                kind: "statement",
+                feature: node.elements.map(e => e.feature).join("_"),
+                optional: false,
+                repeatable: true,
+                refRuleNames
+            });
+            return;
+        }
+
         // Mixed alternatives (keywords + rule calls etc.) aren't fully
         // representable as a single Blockly input yet. Fall back to the
         // first branch so the pipeline still produces something, and
@@ -111,7 +140,8 @@ function handleAssignment(node, ctx) {
             feature: node.feature,
             optional,
             repeatable: true,
-            refRuleName
+            refRuleName,
+            refRuleNames: refRuleName ? [refRuleName] : []
         });
         return;
     }
