@@ -25,7 +25,8 @@ function indent(text, spaces) {
 /**
  * A "statement" IR part can now name more than one referenced rule -
  * `(phones+=Phone | addresses+=Address)*` merges into a single input
- * whose `refRuleNames` is `["Phone", "Address"]`. Every rule named by
+ * whose `refRuleNames` is `["Phone", "Address"]` (see the IRPart doc in
+ * ir-builder.js for how that array gets populated). Every rule named by
  * such a part needs to be able to (a) drop into that statement input
  * and (b) connect directly above/below every *other* rule named by the
  * same part, so the group is given one shared check/type string rather

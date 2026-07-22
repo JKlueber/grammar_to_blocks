@@ -1,4 +1,18 @@
 /**
+ * Standalone RuleIR[] -> plain-JS `forBlock` generator source.
+ *
+ * NOT called by generate_blockly/src/parse.js. The CLI pipeline uses
+ * blockly-ts-target.js's generateGeneratorTs() instead, which emits
+ * TypeScript against the `blockly_app/` scaffold in this repo.
+ *
+ * Kept here for anyone integrating generated blocks into a plain-JS
+ * (non-Vite/TS) Blockly setup: it emits the same round-tripping strategy
+ * (reconstruct the DSL's own concrete syntax from a block's fields/inputs)
+ * as generateGeneratorTs(), just as CommonJS/plain-JS `forBlock[...] = ...`
+ * assignments instead of TypeScript.
+ */
+
+/**
  * Registry mapping IR part "kind" -> a builder that returns
  * { setupLine, codeFragment } for that part, used when assembling a
  * block's generator function. Extend this to change how a given kind of

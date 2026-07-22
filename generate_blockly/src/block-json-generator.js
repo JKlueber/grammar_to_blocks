@@ -1,4 +1,19 @@
 /**
+ * Standalone RuleIR[] -> Blockly JSON generator.
+ *
+ * NOT called by generate_blockly/src/parse.js. The CLI pipeline uses
+ * blockly-ts-target.js's generateBlocksTs() instead, which reuses the
+ * `argBuilders` registry from this file but adds the extra bits that
+ * pipeline needs (upper-snake-cased arg names, per-rule colours, and the
+ * "check" typing that lets rules in a merged `+=` statement input stack
+ * together - see the RuleIR.refRuleNames doc in ir-builder.js).
+ *
+ * Kept here as a lighter-weight option for anyone who wants plain Blockly
+ * JSON (for `Blockly.defineBlocksWithJsonArray(...)`) without the rest of
+ * the TypeScript/generator/main scaffolding blockly-ts-target.js produces.
+ */
+
+/**
  * Registry mapping IR part "kind" -> Blockly arg0 builder. Extend this to
  * support new IR part kinds (e.g. a future "optional_value") without
  * touching ruleToBlockJson.

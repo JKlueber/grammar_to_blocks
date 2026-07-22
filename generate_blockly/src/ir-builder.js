@@ -4,10 +4,23 @@ import { isParserRule } from './ast-utils.js';
  * @typedef {Object} IRPart
  * @property {"keyword"|"field"|"dropdown"|"value"|"statement"} kind
  * @property {string} [text]        - literal text, for "keyword" parts
- * @property {string} [feature]     - grammar feature name, for input parts
+ * @property {string} [feature]     - grammar feature name, for the other
+ *   kinds. For a "statement" part produced by merging several alternative
+ *   list-assignments (see the Alternatives handler below), this is every
+ *   involved feature name joined with "_", e.g. "phones_addresses".
  * @property {"text"|"number"} [fieldType] - for "field" parts
  * @property {Array<[string,string]>} [options] - for "dropdown" parts
- * @property {string} [refRuleName] - referenced parser rule, for "value" parts
+ * @property {string} [refRuleName] - the referenced parser rule, for "value"
+ *   parts and for the common single-rule "statement" case (`feature+=Rule`).
+ *   Left undefined when a "statement" part has more than one possible rule
+ *   (see refRuleNames).
+ * @property {string[]} [refRuleNames] - every parser rule that is allowed to
+ *   fill a "statement" part. Holds a single entry (`[refRuleName]`) for a
+ *   plain `feature+=Rule` assignment; holds one entry per branch for a
+ *   merged `(a+=A | b+=B)*` alternatives group. The TS target
+ *   (blockly-ts-target.js) uses this list to give every named rule's block
+ *   a shared "check" type, so instances of any of them can be dropped into
+ *   - and stacked above/below each other in - that one statement input.
  * @property {boolean} [optional]   - cardinality "?"
  * @property {boolean} [repeatable] - cardinality "*" / "+" / operator "+="
  *
@@ -28,13 +41,38 @@ const nodeHandlers = {
             visit(e, ctx);
     },
 
+    /**
+     * A grammar `Alternatives` node (`a | b | c`) with no assignment in
+     * front of it is handled as one of three distinct shapes, checked in
+     * order:
+     *
+     *   1. Every branch is a bare `Keyword` -> the whole thing is one
+     *      choice the user makes, so it becomes a single anonymous
+     *      "dropdown" IR part (one Blockly field_dropdown, one option per
+     *      keyword).
+     *
+     *   2. Every branch is a list assignment to a *different* feature
+     *      (`phones+=Phone | addresses+=Address`) -> this is Langium's
+     *      idiom for "a mixed, order-preserving list of several element
+     *      kinds", e.g. `(phones+=Phone | addresses+=Address)*` in the
+     *      AddressBook example grammar. The DSL doesn't care which
+     *      feature a given entry was assigned to, only the interleaved
+     *      order in which blocks are stacked - so all branches collapse
+     *      into ONE shared Blockly statement input rather than one input
+     *      per feature. (Visiting each branch independently would only
+     *      ever surface the *last* feature parsed into that slot,
+     *      silently dropping the others - hence the merge.)
+     *
+     *   3. Anything else (keywords mixed with rule calls, nested groups,
+     *      etc.) isn't representable as a single Blockly input yet. We
+     *      fall back to the first branch only, so the pipeline still
+     *      produces *something*, and push a warning so the loss is
+     *      visible instead of silent.
+     */
     Alternatives(node, ctx) {
         const allKeywords = node.elements.every(e => e.$type === "Keyword");
 
         if (allKeywords) {
-            // A bare (unassigned) set of alternative keywords becomes an
-            // anonymous dropdown - there's no feature name to key it on,
-            // so we mint one.
             ctx.parts.push({
                 kind: "dropdown",
                 feature: ctx.nextAnonymousFeature(),
@@ -43,14 +81,6 @@ const nodeHandlers = {
             return;
         }
 
-        // `(phones+=Phone | addresses+=Address)*` - every branch is a
-        // list-valued assignment to a different feature, all repeated by
-        // the same outer `*`. The DSL doesn't care which feature a given
-        // entry came from, only the interleaved order matters, so this
-        // maps onto ONE shared Blockly statement input rather than one
-        // per feature. Visiting each branch separately would only ever
-        // surface the *last* feature parsed into that slot, silently
-        // losing the others - so it's merged into a single IR part here.
         const allListAssignments = node.elements.every(e =>
             e.$type === "Assignment" &&
             e.operator === "+=" &&
@@ -72,10 +102,6 @@ const nodeHandlers = {
             return;
         }
 
-        // Mixed alternatives (keywords + rule calls etc.) aren't fully
-        // representable as a single Blockly input yet. Fall back to the
-        // first branch so the pipeline still produces something, and
-        // surface a warning so the user knows it's a simplification.
         ctx.warnings.push(
             "Alternatives with non-keyword branches are only partially " +
             "supported; using the first branch only."
@@ -117,9 +143,21 @@ function visit(node, ctx) {
     handler(node, ctx);
 }
 
+/**
+ * Turns a single `feature=...` / `feature+=...` Assignment node into the
+ * matching IRPart. This is where most of the "what does this grammar
+ * feature mean as a Blockly input" mapping decisions live:
+ *
+ *   - `feature += X`            -> "statement" (see below)
+ *   - `feature = ID`            -> "field" (fieldType: "text")
+ *   - `feature = INT`           -> "field" (fieldType: "number")
+ *   - `feature = SomeOtherRule` -> "value" (a plug-in input_value socket)
+ *   - `feature = (A | B | C)`   -> "dropdown", if A/B/C are all keywords
+ *   - anything else             -> generic "value" fallback
+ */
 function handleAssignment(node, ctx) {
 
-    const cardinality = node.cardinality;
+    const cardinality = node.cardinality; // undefined | '?' | '*' | '+'
     const optional = cardinality === '?';
     const repeatable = cardinality === '*' || cardinality === '+' || node.operator === '+=';
 
@@ -131,6 +169,12 @@ function handleAssignment(node, ctx) {
         // rule reference) so downstream targets can connect the two -
         // e.g. giving the referenced rule's block a self-typed
         // previousStatement/nextStatement so instances of it stack.
+        //
+        // Both refRuleName (single) and refRuleNames (array-of-one) are
+        // set here so this common case looks the same, downstream, as
+        // the multi-rule statement parts produced by the Alternatives
+        // handler above - callers can always read refRuleNames and get
+        // the full list, regardless of which path built the part.
         const refRuleName = node.terminal?.$type === "RuleCall"
             ? node.terminal.rule?.ref?.name
             : undefined;
@@ -191,10 +235,15 @@ function handleAssignment(node, ctx) {
 }
 
 /**
+ * Walks a Langium grammar AST and produces one RuleIR per parser rule
+ * (terminal rules like ID/INT/WS are referenced by name but not converted
+ * to blocks of their own).
+ *
  * @param {object} grammar - Langium grammar AST (from loadGrammar).
  * @param {object} [options]
- * @param {(msg: string) => void} [options.onWarning] - called for each
- *   simplification/skip made while building the IR.
+ * @param {(msg: string) => void} [options.onWarning] - called once per
+ *   simplification/skip made while building the IR (e.g. a mixed
+ *   Alternatives branch that got collapsed, or an unrecognised node type).
  * @returns {RuleIR[]}
  */
 export function buildIR(grammar, options = {}) {
@@ -212,6 +261,10 @@ export function buildIR(grammar, options = {}) {
         const ctx = {
             parts: [],
             warnings,
+            // Anonymous IR parts (dropdowns/values with no `feature=` in
+            // the grammar) still need a unique name to key off of in the
+            // generated Blockly JSON/code, so mint anon0, anon1, ... per
+            // rule as they're encountered.
             nextAnonymousFeature: () => `anon${anon++}`
         };
 
