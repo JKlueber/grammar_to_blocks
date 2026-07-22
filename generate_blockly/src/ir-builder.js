@@ -119,7 +119,7 @@ function visit(node, ctx) {
 
 function handleAssignment(node, ctx) {
 
-    const cardinality = node.cardinality; // undefined | '?' | '*' | '+'
+    const cardinality = node.cardinality;
     const optional = cardinality === '?';
     const repeatable = cardinality === '*' || cardinality === '+' || node.operator === '+=';
 
@@ -217,7 +217,7 @@ export function buildIR(grammar, options = {}) {
 
         visit(rule.definition, ctx);
 
-        rules.push({ name: rule.name, parts: ctx.parts });
+        rules.push({ name: rule.name, parts: ctx.parts, entry: rule.entry === true });
     }
 
     if (warnings.length && options.onWarning) {

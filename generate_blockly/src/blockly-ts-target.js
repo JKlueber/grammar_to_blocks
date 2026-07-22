@@ -175,16 +175,25 @@ ${blocksLiteral}
 `;
 }
 
-function ruleToGeneratorFunction(rule) {
+function ruleToGeneratorFunction(rule, stackTypes) {
 
     const blockType = rule.name.toLowerCase();
     const setupLines = [];
-    const codeFragments = [];
+    // Each item tracks whether its code can span multiple lines (only
+    // "statement" parts can, since statementToCode() already returns an
+    // indented, multi-line block chain). That flag decides whether the
+    // fragment before/after it is joined with a plain space or a real
+    // newline, which is what actually turns e.g. `'{' phones '}'` into
+    //   {
+    //     phone 123
+    //   }
+    // instead of squashing everything onto one line.
+    const items = [];
 
     for (const part of rule.parts) {
 
         if (part.kind === "keyword") {
-            codeFragments.push(JSON.stringify(part.text + " "));
+            items.push({ frag: JSON.stringify(part.text), multiline: false });
             continue;
         }
 
@@ -196,30 +205,62 @@ function ruleToGeneratorFunction(rule) {
             case "field":
             case "dropdown":
                 setupLines.push(`  const ${varName} = block.getFieldValue('${argName}');`);
-                codeFragments.push(`${varName} + ' '`);
+                items.push({ frag: varName, multiline: false });
                 break;
 
             case "value":
                 setupLines.push(`  const ${varName} = generator.valueToCode(block, '${argName}', generator.ORDER_NONE) || '';`);
-                codeFragments.push(`${varName} + ' '`);
+                items.push({ frag: varName, multiline: false });
                 break;
 
-            case "statement":
-                setupLines.push(`  const ${varName} = generator.statementToCode(block, '${argName}');`);
-                codeFragments.push(varName);
+            case "statement": {
+                // Blockly's statementToCode() always indents its result by
+                // one INDENT level, since it assumes the statement input
+                // sits inside some visible container. For every *nested*
+                // statement input (e.g. the body of `contact { ... }`)
+                // that's exactly right. But the grammar's entry rule has
+                // no enclosing braces of its own - it *is* the top of the
+                // document - so without correcting for it here, the whole
+                // generated file would sit one indent level in from where
+                // it should. dedentOnce() strips exactly that one level
+                // back off, only for the entry rule.
+                const raw = `generator.statementToCode(block, '${argName}').replace(/\\n$/, '')`;
+                setupLines.push(`  const ${varName} = ${rule.entry ? `dedentOnce(${raw})` : raw};`);
+                items.push({ frag: varName, multiline: true });
                 break;
+            }
 
             default:
                 throw new Error(`No code-generator template for IR part kind "${part.kind}"`);
         }
     }
 
-    const codeExpr = codeFragments.length ? codeFragments.join(" + ") : `''`;
+    let codeExpr;
+
+    if (!items.length) {
+        codeExpr = `''`;
+    } else {
+        codeExpr = items[0].frag;
+        for (let i = 1; i < items.length; i++) {
+            const sep = (items[i - 1].multiline || items[i].multiline) ? "'\\n'" : "' '";
+            codeExpr += ` + ${sep} + ${items[i].frag}`;
+        }
+    }
+
+    // Blockly convention: a block used in a statement position (i.e. one
+    // of its instances can be stacked via previousStatement/nextStatement,
+    // which is exactly the set of rules named by some "statement" IR part)
+    // is expected to return code ending in "\n", so consecutive stacked
+    // blocks land on separate lines instead of being concatenated raw by
+    // Blockly's block-chain codegen. Rules only ever used as a plain value
+    // input keep a bare, unterminated fragment instead.
+    const isStackable = stackTypes.has(blockType);
 
     return [
         `generator.forBlock['${blockType}'] = function (block: Blockly.Block): string {`,
         ...setupLines,
-        `  return (${codeExpr});`,
+        `  const code = (${codeExpr}).trim();`,
+        `  return code${isStackable ? " + '\\n'" : ""};`,
         `};`
     ].join("\n");
 }
@@ -235,7 +276,8 @@ function ruleToGeneratorFunction(rule) {
  */
 export function generateGeneratorTs(irRules) {
 
-    const functions = irRules.map(ruleToGeneratorFunction).join("\n\n");
+    const stackTypes = computeStackTypes(irRules);
+    const functions = irRules.map(rule => ruleToGeneratorFunction(rule, stackTypes)).join("\n\n");
 
     return `import * as Blockly from 'blockly';
 
@@ -243,6 +285,13 @@ import { javascriptGenerator } from 'blockly/javascript';
 export const generator = javascriptGenerator;
 
 generator.INDENT = '  ';
+
+function dedentOnce(code: string): string {
+  return code
+    .split('\\n')
+    .map(line => line.startsWith(generator.INDENT) ? line.slice(generator.INDENT.length) : line)
+    .join('\\n');
+}
 
 ${functions}
 `;
