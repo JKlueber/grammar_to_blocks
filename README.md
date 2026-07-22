@@ -170,13 +170,21 @@ RuleIR = {
 
 IRPart = {
   kind: "keyword" | "field" | "dropdown" | "value" | "statement",
-  text?: string,           // literal text, for "keyword"
-  feature?: string,         // grammar feature name, for the other kinds
+  text?: string,              // literal text, for "keyword"
+  feature?: string,            // grammar feature name, for the other kinds
+                                //   (see "merged statement parts" below for
+                                //   how this is derived when several
+                                //   features feed one shared input)
   fieldType?: "text"|"number", // for "field"
   options?: [string,string][], // for "dropdown"
-  refRuleName?: string,      // referenced rule, for "value"/"statement"
-  optional?: boolean,         // cardinality "?"
-  repeatable?: boolean          // cardinality "*"/"+"/operator "+="
+  refRuleName?: string,        // the referenced rule, for "value" parts and
+                                //   for the common single-rule "statement"
+                                //   case (feature+=Rule); undefined when a
+                                //   "statement" part names more than one rule
+  refRuleNames?: string[],     // every rule allowed to fill a "statement"
+                                //   part - see below
+  optional?: boolean,          // cardinality "?"
+  repeatable?: boolean         // cardinality "*"/"+" or operator "+="
 }
 ```
 
@@ -189,9 +197,10 @@ Traversal is dispatched through the `nodeHandlers` registry (`Group`,
   - `feature += X` (a list assignment) always becomes a `"statement"` IR
     part — i.e. a Blockly statement input where the user stacks one block
     per list item. If the repeated element is a plain rule reference, the
-    referenced rule name is recorded (`refRuleName`) so the TS target can
-    later give *that* rule's block a matching, self-typed
-    `previousStatement`/`nextStatement` so instances of it actually stack.
+    referenced rule name is recorded in **both** `refRuleName` (a single
+    string, for convenience) and `refRuleNames` (a one-element array), so
+    downstream code can always read `refRuleNames` regardless of which path
+    built the part — see the next bullet.
   - `feature=ID` / `feature=INT` become `"field"` IR parts (`field_input` /
     `field_number` in Blockly terms).
   - `feature=SomeOtherRule` becomes a `"value"` IR part (a plug-in
@@ -200,11 +209,30 @@ Traversal is dispatched through the `nodeHandlers` registry (`Group`,
     `"dropdown"` IR part with one `[label, value]` option per keyword.
   - Anything else (mixed alternatives, nested groups, etc.) falls back to a
     generic `"value"` part.
-- **Bare `Alternatives`** (no `feature=` in front) with all-keyword branches
-  becomes an anonymous `"dropdown"` (feature name auto-generated as
-  `anon0`, `anon1`, ...). Mixed alternatives fall back to visiting *only the
-  first branch* and push a warning — this is flagged as a known
-  simplification, not a silent one.
+- **Bare `Alternatives`** (no `feature=` in front of the whole group) is
+  checked against three shapes, in order:
+  1. *All branches are keywords* (`'a' | 'b' | 'c'`) → one anonymous
+     `"dropdown"` part (feature name auto-generated as `anon0`, `anon1`,
+     ...), one option per keyword.
+  2. *All branches are list assignments to different features*
+     (`phones+=Phone | addresses+=Address`) → **merged statement parts**.
+     This is the case the bundled `AddressBook` grammar uses
+     (`(phones+=Phone | addresses+=Address)*`). Since the DSL only cares
+     about the interleaved *order* entries appear in, not which grammar
+     feature they were assigned to, all branches collapse into **one**
+     shared Blockly statement input instead of one input per feature.
+     Its `feature` is every branch's feature name joined with `_`
+     (`"phones_addresses"`), and its `refRuleNames` lists every rule that
+     can drop into that slot (`["Phone", "Address"]`). Downstream, this is
+     what lets `Phone` and `Address` blocks stack directly above/below each
+     other in the same input — see
+     [`blockly-ts-target.js`](#generate_blockly-src-blockly-ts-target-js--ir--the-actual-output-files)
+     below for how that shared "check" type is computed.
+  3. *Anything else* (keywords mixed with rule calls, nested groups, etc.)
+     isn't representable as a single Blockly input yet. The IR builder
+     falls back to visiting **only the first branch**, so the pipeline
+     still produces something, and pushes a warning so the simplification
+     is visible instead of silent.
 - **Bare `RuleCall`** (no assignment) becomes an anonymous `"value"` part —
   kept mostly for forward compatibility, since the restricted subset
   doesn't commonly produce these.
@@ -226,9 +254,14 @@ at the end of this section). It exports three functions:
   concatenating keyword text and `%N` placeholders, `args0` built via the
   shared `argBuilders` from `block-json-generator.js`, arg names upper-
   snake-cased via `toArgName`). Rules that are the target of some `+=` list
-  elsewhere in the grammar (`computeStackableRuleNames`) get
-  `previousStatement`/`nextStatement` set to their own block type, so they
-  visually stack in the workspace like a list; all other rules get `null`/`null`.
+  elsewhere in the grammar (`computeStackTypes`) get
+  `previousStatement`/`nextStatement` set to a shared "check" type computed
+  from every rule named in that statement part's `refRuleNames` (sorted and
+  joined with `_or_`, e.g. `"address_or_phone"` for the AddressBook
+  grammar's merged `Phone`/`Address` input); a rule that's the sole target
+  of its own `+=` list reduces to just its own lowercase name, so existing
+  single-type grammars generate identical output to before this feature
+  was added. Rules that aren't a `+=` target at all get `null`/`null`.
 - **`generateGeneratorTs(irRules)`** → contents of `generator.ts`. For each
   rule, emits a `generator.forBlock['<ruletype>'] = function (block) {...}`
   that reads each field/value/statement input back out (via
@@ -254,10 +287,11 @@ nextStatement, colour }`) suitable for
 `Blockly.defineBlocksWithJsonArray(...)` directly — feature names are used
 as-is (not upper-snake-cased) and every block defaults to
 `previousStatement`/`nextStatement: null` regardless of whether it's used
-in a `+=` list. Also exports its `argBuilders` registry, which
-`blockly-ts-target.js` actually imports and reuses. Useful if you want
-Blockly JSON without the TypeScript/generator/main scaffolding that
-`blockly-ts-target.js` produces.
+in a `+=` list (this file predates the merged-statement/`refRuleNames`
+support described above, so it doesn't compute shared "check" types).
+Also exports its `argBuilders` registry, which `blockly-ts-target.js`
+actually imports and reuses. Useful if you want Blockly JSON without the
+TypeScript/generator/main scaffolding that `blockly-ts-target.js` produces.
 
 ### `generate_blockly/src/code-generator.js` — standalone JS forBlock generator (not called by `parse.js`)
 
@@ -288,11 +322,13 @@ instead of the `blockly_app/` scaffold in this repo.
   node generate_blockly/src/parse.js generate_blockly/input/grammar.langium
   ```
   If you look at `blocks.ts`/`generator.ts` you can see the pattern described
-  above concretely: `contact` and `phone` got `previousStatement`/
-  `nextStatement: "contact"` / `"phone"` because `Contact` does
-  `(phones+=Phone | addresses+=Address)*`, so `Phone` (and similarly
-  `Address`, though it's a value type target here rather than statement)
-  is a `+=` target and became stackable; `addressbook` and `address` did not.
+  above concretely: `phone` and `address` both got
+  `previousStatement`/`nextStatement: "address_or_phone"` because `Contact`
+  does `(phones+=Phone | addresses+=Address)*`, merging both into one
+  shared statement input (see "merged statement parts" above); `addressbook`
+  and `contact` did not, since `AddressBook`'s `contacts+=Contact` only
+  ever targets `Contact` alone, so its check type reduces to plain
+  `"contact"`.
 
 Since `generator.ts` in this snapshot imports `javascriptGenerator` from
 `'blockly/javascript'` and re-exports it as `generator`, `blockly_app`
@@ -313,7 +349,7 @@ allows only:
 | Construct | Support |
 |---|---|
 | `Group` (sequencing) | ✅ |
-| `Alternatives` (`\|`) | ✅ (all-keyword alternatives → dropdown; mixed alternatives → first branch only, with a warning) |
+| `Alternatives` (`\|`) | ✅ (all-keyword → dropdown; all-list-assignment → merged statement input; other mixed alternatives → first branch only, with a warning) |
 | `Assignment` (`feature=`, `feature+=`) | ✅ |
 | `Keyword` (literal text) | ✅ |
 | `RuleCall` (reference to another rule) | ✅ |
@@ -330,7 +366,10 @@ throws an `Error` listing every offending location — nothing is generated.
 `field_number` inputs; any other rule reference becomes a plug-in
 `input_value` socket; `feature+=X` becomes a stacking `input_statement`
 socket, and `X`'s own block gets self-typed `previousStatement`/
-`nextStatement` so multiple instances chain together.
+`nextStatement` so multiple instances chain together. When several `+=`
+branches are merged via alternatives (`(a+=A | b+=B)*`), every named rule
+instead gets a shared check type so instances of *any* of them can chain
+together in that one input — see "merged statement parts" above.
 
 ---
 
