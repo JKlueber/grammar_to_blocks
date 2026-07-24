@@ -1,12 +1,5 @@
 import { argBuilders } from './block-json-generator.js';
 
-/**
- * Blockly convention (seen throughout the hand-written rbac_* blocks) is
- * to name args in SCREAMING_SNAKE_CASE ('NAME', 'ROLE', 'EFFECT', ...)
- * while local variables in the generator use the readable camelCase
- * feature name ('role', 'effect', ...). These two helpers keep that
- * mapping in one place so every generator in this file agrees on it.
- */
 function toArgName(feature) {
     return feature
         .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
@@ -22,28 +15,11 @@ function indent(text, spaces) {
     return text.split("\n").map(line => pad + line).join("\n");
 }
 
-/**
- * A "statement" IR part can now name more than one referenced rule -
- * `(phones+=Phone | addresses+=Address)*` merges into a single input
- * whose `refRuleNames` is `["Phone", "Address"]` (see the IRPart doc in
- * ir-builder.js for how that array gets populated). Every rule named by
- * such a part needs to be able to (a) drop into that statement input
- * and (b) connect directly above/below every *other* rule named by the
- * same part, so the group is given one shared check/type string rather
- * than each rule keeping its own name as before. A rule that only ever
- * appears alone (the common `feature+=X` case) still ends up in a
- * "group" of one, which reduces to its own lowercase name - so existing
- * single-type grammars generate identical output to before.
- *
- * @returns {Map<string,string>} rule name (lowercase) -> shared check string
- */
 function computeStackTypes(irRules) {
-
     const typeByRule = new Map();
 
     for (const rule of irRules) {
         for (const part of rule.parts) {
-
             if (part.kind !== "statement")
                 continue;
 
@@ -63,14 +39,22 @@ function computeStackTypes(irRules) {
     return typeByRule;
 }
 
-/**
- * Turns a grammar feature name into a short human-readable label so
- * inputs aren't just bare, unlabelled placeholders in the Blockly
- * workspace (e.g. `name` -> "Name", `phones_addresses` -> "Phones /
- * Addresses", the auto-generated `anon0` -> "Option").
- */
-function humanizeFeature(feature) {
+function computeValueRules(irRules, stackTypes) {
+    const valueRules = new Set();
+    for (const rule of irRules) {
+        for (const part of rule.parts) {
+            if (part.kind === "value" && part.refRuleName) {
+                const refLower = part.refRuleName.toLowerCase();
+                if (!stackTypes.has(refLower)) {
+                    valueRules.add(refLower);
+                }
+            }
+        }
+    }
+    return valueRules;
+}
 
+function humanizeFeature(feature) {
     if (/^anon\d+$/.test(feature))
         return "Option";
 
@@ -81,22 +65,24 @@ function humanizeFeature(feature) {
         .join(" / ");
 }
 
-/**
- * Deterministic hue (0-359) from a rule name, so each block type gets a
- * stable, distinct colour across regenerations instead of Blockly's
- * default (every block the same grey).
- */
 function colourForRule(name) {
-
     let hash = 0;
-
     for (const ch of name)
         hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-
     return hash % 360;
 }
 
-function partToArg(part, stackTypes) {
+function partToArg(part, stackTypes, valueRules) {
+    if (part.kind === "value" && part.refRuleName) {
+        const refLower = part.refRuleName.toLowerCase();
+        if (!valueRules.has(refLower)) {
+            return {
+                type: "field_input",
+                name: toArgName(part.feature),
+                text: "default_" + part.feature
+            };
+        }
+    }
 
     const builder = argBuilders[part.kind];
 
@@ -105,8 +91,12 @@ function partToArg(part, stackTypes) {
 
     const arg = { ...builder(part), name: toArgName(part.feature) };
 
-    if (part.kind === "statement") {
+    // Provide helpful default text for text fields so generated code is never empty
+    if (arg.type === "field_input" && !arg.text) {
+        arg.text = "Unnamed";
+    }
 
+    if (part.kind === "statement") {
         const names = (part.refRuleNames?.length ? part.refRuleNames : (part.refRuleName ? [part.refRuleName] : []))
             .map(n => n.toLowerCase());
 
@@ -114,60 +104,88 @@ function partToArg(part, stackTypes) {
 
         if (checks.length)
             arg.check = checks.length === 1 ? checks[0] : checks;
+    } else if (part.kind === "value" && part.refRuleName) {
+        arg.check = part.refRuleName.toLowerCase();
     }
 
     return arg;
 }
 
-function ruleToBlockJson(rule, stackTypes) {
+function ruleToBlockJson(rule, stackTypes, valueRules) {
+    const block = { type: rule.name.toLowerCase() };
+    const ruleLower = rule.name.toLowerCase();
 
-    const block = { type: rule.name.toLowerCase(), message0: "", args0: [] };
-
+    let messageIndex = 0;
+    let currentMsg = [];
+    let currentArgs = [];
     let placeholder = 1;
 
-    for (const part of rule.parts) {
+    const flushLine = () => {
+        const msgStr = currentMsg.join(" ").trim();
+        if (msgStr.length > 0 || currentArgs.length > 0) {
+            block[`message${messageIndex}`] = msgStr;
+            if (currentArgs.length > 0) {
+                block[`args${messageIndex}`] = currentArgs;
+            }
+            messageIndex++;
+            currentMsg = [];
+            currentArgs = [];
+            placeholder = 1;
+        }
+    };
 
+    for (const part of rule.parts) {
         if (part.kind === "keyword") {
-            block.message0 += part.text + " ";
+            if (part.text === "{" || part.text === "}") {
+                flushLine();
+                currentMsg.push(part.text);
+                flushLine();
+            } else {
+                currentMsg.push(part.text);
+            }
             continue;
         }
 
-        // Label every non-literal input with its grammar feature name so
-        // the block reads like "Name: [___]" instead of a bare, unlabelled
-        // input - this is what actually makes a generated block legible.
-        block.message0 += `${humanizeFeature(part.feature)}: %${placeholder++} `;
-        block.args0.push(partToArg(part, stackTypes));
+        if (part.kind === "statement") {
+            flushLine();
+            block[`message${messageIndex}`] = `${humanizeFeature(part.feature)}: %1`;
+            block[`args${messageIndex}`] = [partToArg(part, stackTypes, valueRules)];
+            messageIndex++;
+            continue;
+        }
+
+        currentMsg.push(`${humanizeFeature(part.feature)}: %${placeholder++}`);
+        currentArgs.push(partToArg(part, stackTypes, valueRules));
     }
 
-    block.message0 = block.message0.trim();
+    flushLine();
+
     block.colour = colourForRule(rule.name);
 
-    const stackType = stackTypes.get(rule.name.toLowerCase());
-
-    if (stackType) {
-        block.previousStatement = stackType;
-        block.nextStatement = stackType;
+    if (valueRules.has(ruleLower)) {
+        block.output = ruleLower;
     } else {
-        block.previousStatement = null;
-        block.nextStatement = null;
+        const stackType = stackTypes.get(ruleLower);
+        if (stackType) {
+            block.previousStatement = stackType;
+            block.nextStatement = stackType;
+        } else {
+            block.previousStatement = null;
+            block.nextStatement = null;
+        }
     }
 
     return block;
 }
 
-/**
- * @param {import('./ir-builder.js').RuleIR[]} irRules
- * @returns {string} contents of blocks.ts
- */
 export function generateBlocksTs(irRules) {
-
     const stackTypes = computeStackTypes(irRules);
-    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackTypes));
+    const valueRules = computeValueRules(irRules, stackTypes);
+    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackTypes, valueRules));
     const blocksLiteral = indent(JSON.stringify(blocks, null, 2), 4);
 
     return `import * as Blockly from 'blockly';
 
-// Export a function to define our blocks
 export function defineBlocks() {
   Blockly.defineBlocksWithJsonArray(
 ${blocksLiteral}
@@ -176,23 +194,13 @@ ${blocksLiteral}
 `;
 }
 
-function ruleToGeneratorFunction(rule, stackTypes) {
-
+function ruleToGeneratorFunction(rule, stackTypes, valueRules) {
     const blockType = rule.name.toLowerCase();
+    const isValueBlock = valueRules.has(blockType);
     const setupLines = [];
-    // Each item tracks whether its code can span multiple lines (only
-    // "statement" parts can, since statementToCode() already returns an
-    // indented, multi-line block chain). That flag decides whether the
-    // fragment before/after it is joined with a plain space or a real
-    // newline, which is what actually turns e.g. `'{' phones '}'` into
-    //   {
-    //     phone 123
-    //   }
-    // instead of squashing everything onto one line.
     const items = [];
 
     for (const part of rule.parts) {
-
         if (part.kind === "keyword") {
             items.push({ frag: JSON.stringify(part.text), multiline: false });
             continue;
@@ -200,44 +208,24 @@ function ruleToGeneratorFunction(rule, stackTypes) {
 
         const varName = safeVarName(part.feature);
         const argName = toArgName(part.feature);
+        const isConvertedValueField = part.kind === "value" && part.refRuleName && !valueRules.has(part.refRuleName.toLowerCase());
 
-        switch (part.kind) {
-
-            case "field":
-            case "dropdown":
-                setupLines.push(`  const ${varName} = block.getFieldValue('${argName}');`);
-                items.push({ frag: varName, multiline: false });
-                break;
-
-            case "value":
-                setupLines.push(`  const ${varName} = generator.valueToCode(block, '${argName}', generator.ORDER_NONE) || '';`);
-                items.push({ frag: varName, multiline: false });
-                break;
-
-            case "statement": {
-                // Blockly's statementToCode() always indents its result by
-                // one INDENT level, since it assumes the statement input
-                // sits inside some visible container. For every *nested*
-                // statement input (e.g. the body of `contact { ... }`)
-                // that's exactly right. But the grammar's entry rule has
-                // no enclosing braces of its own - it *is* the top of the
-                // document - so without correcting for it here, the whole
-                // generated file would sit one indent level in from where
-                // it should. dedentOnce() strips exactly that one level
-                // back off, only for the entry rule.
-                const raw = `generator.statementToCode(block, '${argName}').replace(/\\n$/, '')`;
-                setupLines.push(`  const ${varName} = ${rule.entry ? `dedentOnce(${raw})` : raw};`);
-                items.push({ frag: varName, multiline: true });
-                break;
-            }
-
-            default:
-                throw new Error(`No code-generator template for IR part kind "${part.kind}"`);
+        if (part.kind === "field" || part.kind === "dropdown" || isConvertedValueField) {
+            setupLines.push(`  const ${varName} = block.getFieldValue('${argName}') || 'Unnamed';`);
+            items.push({ frag: varName, multiline: false });
+        } else if (part.kind === "value") {
+            setupLines.push(`  const ${varName} = generator.valueToCode(block, '${argName}', generator.ORDER_NONE) || '';`);
+            items.push({ frag: varName, multiline: false });
+        } else if (part.kind === "statement") {
+            const raw = `generator.statementToCode(block, '${argName}').replace(/\\n$/, '')`;
+            setupLines.push(`  const ${varName} = ${raw};`);
+            items.push({ frag: varName, multiline: true });
+        } else {
+            throw new Error(`No code-generator template for IR part kind "${part.kind}"`);
         }
     }
 
     let codeExpr;
-
     if (!items.length) {
         codeExpr = `''`;
     } else {
@@ -248,37 +236,31 @@ function ruleToGeneratorFunction(rule, stackTypes) {
         }
     }
 
-    // Blockly convention: a block used in a statement position (i.e. one
-    // of its instances can be stacked via previousStatement/nextStatement,
-    // which is exactly the set of rules named by some "statement" IR part)
-    // is expected to return code ending in "\n", so consecutive stacked
-    // blocks land on separate lines instead of being concatenated raw by
-    // Blockly's block-chain codegen. Rules only ever used as a plain value
-    // input keep a bare, unterminated fragment instead.
     const isStackable = stackTypes.has(blockType);
 
-    return [
-        `generator.forBlock['${blockType}'] = function (block: Blockly.Block): string {`,
-        ...setupLines,
-        `  const code = (${codeExpr}).trim();`,
-        `  return code${isStackable ? " + '\\n'" : ""};`,
-        `};`
-    ].join("\n");
+    if (isValueBlock) {
+        return [
+            `generator.forBlock['${blockType}'] = function (block: Blockly.Block) {`,
+            ...setupLines,
+            `  const code = (${codeExpr}).trim();`,
+            `  return [code, generator.ORDER_ATOMIC];`,
+            `};`
+        ].join("\n");
+    } else {
+        return [
+            `generator.forBlock['${blockType}'] = function (block: Blockly.Block): string {`,
+            ...setupLines,
+            `  const code = (${codeExpr}).trim();`,
+            `  return code${isStackable ? " + '\\n'" : ""};`,
+            `};`
+        ].join("\n");
+    }
 }
 
-/**
- * @param {import('./ir-builder.js').RuleIR[]} irRules
- * @returns {string} contents of generator.ts
- *
- * Default strategy: reconstruct the DSL's own concrete syntax from each
- * block's fields/inputs. Easy to hand-edit per block afterwards (e.g. to
- * emit real target code instead of round-tripping grammar text, as the
- * rbac_* generators do).
- */
 export function generateGeneratorTs(irRules) {
-
     const stackTypes = computeStackTypes(irRules);
-    const functions = irRules.map(rule => ruleToGeneratorFunction(rule, stackTypes)).join("\n\n");
+    const valueRules = computeValueRules(irRules, stackTypes);
+    const functions = irRules.map(rule => ruleToGeneratorFunction(rule, stackTypes, valueRules)).join("\n\n");
 
     return `import * as Blockly from 'blockly';
 
@@ -298,40 +280,47 @@ ${functions}
 `;
 }
 
-/**
- * @param {import('./ir-builder.js').RuleIR[]} irRules
- * @returns {string} contents of main.ts
- *
- * Generic workspace + toolbox + code/error output wiring. Deliberately
- * does not include a domain-specific evaluator (like the rbac_* example's
- * policy/role/action/resource selects) since that logic depends on the
- * meaning of your grammar, not just its shape - add that by hand once the
- * generated blocks are in place.
- */
 export function generateMainTs(irRules) {
+    const toolboxCategories = [];
+    const entryRules = irRules.filter(r => r.entry);
+    const otherRules = irRules.filter(r => !r.entry);
 
-    const toolboxEntries = irRules
-        .map(rule => `      { "kind": "block", "type": "${rule.name.toLowerCase()}" }`)
-        .join(",\n");
+    if (entryRules.length) {
+        toolboxCategories.push({
+            name: "Main / Entry",
+            colour: "210",
+            blocks: entryRules.map(r => r.name.toLowerCase())
+        });
+    }
+
+    if (otherRules.length) {
+        toolboxCategories.push({
+            name: "Elements & Components",
+            colour: "160",
+            blocks: otherRules.map(r => r.name.toLowerCase())
+        });
+    }
+
+    const toolboxJson = {
+        kind: "categoryToolbox",
+        contents: toolboxCategories.map(cat => ({
+            kind: "category",
+            name: cat.name,
+            colour: cat.colour,
+            contents: cat.blocks.map(type => ({ kind: "block", type }))
+        }))
+    };
 
     return `import * as Blockly from 'blockly';
 import { defineBlocks } from './blocks';
 import { generator } from './generator';
 
-// define custom blocks before setting up the workspace
 defineBlocks();
 
-// set up the Blockly workspace
 const workspace = Blockly.inject('blocklyDiv', {
-  toolbox: {
-    "kind": "flyoutToolbox",
-    "contents": [
-${toolboxEntries}
-    ]
-  }
+  toolbox: ${JSON.stringify(toolboxJson, null, 2)}
 });
 
-// show code and errors
 const codeOutput = document.getElementById('codeOutput');
 const errorOutput = document.getElementById('errorOutput');
 
@@ -345,7 +334,6 @@ function generateCode() {
   }
 }
 
-// generate code whenever the workspace changes
 workspace.addChangeListener(generateCode);
 `;
 }
