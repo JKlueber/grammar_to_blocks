@@ -2,26 +2,42 @@ import * as Blockly from 'blockly';
 import { defineBlocks } from './blocks';
 import { generator } from './generator';
 
-// define custom blocks before setting up the workspace
 defineBlocks();
 
-// set up the Blockly workspace
 const workspace = Blockly.inject('blocklyDiv', {
   toolbox: {
-    "kind": "flyoutToolbox",
-    "contents": [
-      { "kind": "block", "type": "project" },
-      { "kind": "block", "type": "metadata" },
-      { "kind": "block", "type": "member" },
-      { "kind": "block", "type": "module" },
-      { "kind": "block", "type": "component" },
-      { "kind": "block", "type": "task" },
-      { "kind": "block", "type": "subtask" }
-    ]
-  }
+  "kind": "categoryToolbox",
+  "contents": [
+    {
+      "kind": "category",
+      "name": "Main / Entry",
+      "colour": "210",
+      "contents": [
+        {
+          "kind": "block",
+          "type": "cookbook"
+        }
+      ]
+    },
+    {
+      "kind": "category",
+      "name": "Elements & Components",
+      "colour": "160",
+      "contents": [
+        {
+          "kind": "block",
+          "type": "ingredient"
+        },
+        {
+          "kind": "block",
+          "type": "step"
+        }
+      ]
+    }
+  ]
+}
 });
 
-// show code and errors
 const codeOutput = document.getElementById('codeOutput');
 const errorOutput = document.getElementById('errorOutput');
 
@@ -35,5 +51,4 @@ function generateCode() {
   }
 }
 
-// generate code whenever the workspace changes
 workspace.addChangeListener(generateCode);

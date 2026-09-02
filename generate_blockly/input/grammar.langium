@@ -1,19 +1,65 @@
-grammar AddressBook
+grammar ProjectDSL
 
-hidden terminal WS: /\s+/;
-terminal ID: /[_a-zA-Z][\w_]*/;
-terminal INT: /[0-9]+/;
+entry Project:
+    'project'
+    name=ID
+    '{'
+        metadata=Metadata?
+        members+=Member*
+        modules+=Module+
+        tasks+=Task*
+    '}'
+;
 
-entry AddressBook:
-    (contacts+=Contact)*;
+Metadata:
+    'metadata'
+    '{'
+        version=INT
+        visibility=('public' | 'private')
+    '}'
+;
 
-Contact:
-    'contact' name=ID '{'
-        (phones+=Phone | addresses+=Address)*
-    '}';
+Member:
+    'member'
+    name=ID
+    role=('manager' | 'developer' | 'tester' | 'designer')
+;
 
-Phone:
-    'phone' number=INT;
+Module:
+    'module'
+    name=ID
+    type=('frontend' | 'backend' | 'database' | 'shared')
+    '{'
+        components+=Component*
+    '}'
+;
 
-Address:
-    'address' city=ID;
+Component:
+    'component'
+    name=ID
+    language=('java' | 'typescript' | 'python' | 'cpp')
+    lines=INT
+;
+
+Task:
+    'task'
+    title=ID
+    priority=('low' | 'medium' | 'high')
+    status=('todo' | 'doing' | 'done')
+    assignee=Member?
+    module=Module?
+    estimate=INT
+    '{'
+        subtasks+=SubTask*
+    '}'
+;
+
+SubTask:
+    'subtask'
+    title=ID
+    completed=('yes' | 'no')
+;
+
+terminal ID: /[a-zA-Z_][a-zA-Z0-9_]*/;
+terminal INT returns number: /[0-9]+/;
+terminal WS hidden: /\s+/;
