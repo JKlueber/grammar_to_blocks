@@ -1,0 +1,199 @@
+% This is samplepaper.tex, a sample chapter demonstrating the
+% LLNCS macro package for Springer Computer Science proceedings;
+% Version 2.20 of 2017/10/04
+%
+\documentclass[runningheads]{llncs}
+%
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{color}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+% Used for displaying a sample figure. If possible, figure files should
+% be included in EPS format.
+%
+% If you use the hyperref package, please uncomment the following line
+% to display URLs in blue roman font according to Springer's eBook style:
+% \renewcommand\UrlFont{\color{blue}\rmfamily}
+
+\begin{document}
+%
+\title{Semantic Comparison of LTL Specifications\\ with NuSMV}
+\subtitle{\scriptsize Formal Methods for Software Engineering WS22/23}
+%
+%\titlerunning{Abbreviated paper title}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
+%
+\author{First Author \and Second Author}
+\institute{Bauhaus-Universität Weimar}
+%
+\maketitle              % typeset the header of the contribution
+%
+\begin{abstract}
+Model checking is an automatic technique for verifying correctness properties of safety-critical reactive systems. LTL is a popular logic for the specification of correctness properties. NuSMV is a classic model checking tool supporting the analysis of transition systems and LTL specifications.
+
+We develop a methodology and tools for semantically comparing NuSMV specifications. The input of our tool are two LTL specification and a model. Our tool checks refinement, equivalence, or incomparability of the provided specifications.
+\end{abstract}
+
+\section{Introduction}
+
+\subsection{Background}
+Model checking is an automatic technique for verifying correctness properties of safety-critical reactive systems~\cite{ClarkeS01}. Examples include \ldots
+
+LTL is a popular logic for the specification of correctness properties. The main operators of LTL are \ldots
+
+NuSMV\footnote{Project page of NuSMV at \url{https://nusmv.fbk.eu/}} is a classic model checking tool supporting the analysis of transition systems and LTL specifications. It is used either for the direct analysis of models and specifications or programmatically by other tools. e.g., Alloy\footnote{For Alloy 6, see \url{https://alloytools.org/}}.
+
+\subsection{Motivation}
+
+When developing safety critical or high-assurance systems LTL specifications become artifacts of the software engineering life-cycle. The specifications have to be written, maintained, updated, refactored etc. as the software system is created and evolved. Writing and reading LTL specifications is a non-trivial task. To date there are no tools that support the semantic comparison of LTL specifications as a system evolves. We aim to develop a methodology and tools for semantically comparing NuSMV specifications to support software engineers writing and maintaining LTL specifications.
+
+\section{Problem Statement}
+The input of our tool are a model $\mathcal{M}$ and two LTL properties $\phi$ and $\psi$. 
+
+The possible outputs of a semantic comparison are:
+\begin{description}
+\item[$\phi$ refines $\psi$] iff $\forall \pi \in \mathcal{M}. (s \models \phi) \rightarrow (s \models \psi)$ denoted $\phi \prec \psi$
+\item[$\psi$ refines $\phi$] iff $\forall \pi \in \mathcal{M}. (s \models \psi) \rightarrow (s \models \phi)$ denoted $\psi \prec \phi$
+\item[equivalent] iff $\phi \prec \psi$ and $\psi \prec \phi$ denoted $\phi \equiv \psi$
+\item[incomparable] otherwise
+\end{description}
+
+Optionally, we want the tool to ignore the model $\mathcal{M}$ and perform the semantic comparison for all possible models.
+
+\section{Example \& Intuition}
+Consider the example model of a simple request answering system. The engineers initially formulated the LTL specification \texttt{eventuallyBusy} in lines 12-13 stating that incoming requests will eventually be worked on in state \texttt{busy}. After carefully checking the implementation the team wants to strengthen the specification to require that the \texttt{busy} state is reached immediately or in the next step (see lines 15-16).
+
+
+
+\begin{lstlisting}[caption=NuSMV model example with two named LTL specifications to compare, label=lst:example]
+MODULE main
+VAR
+  request : boolean;
+  state   : {ready, busy};
+ASSIGN
+  init(state) := ready;
+  next(state) := case
+       state = ready & request : busy;
+       TRUE                    : {ready, busy};
+  esac;
+
+LTLSPEC NAME eventuallyBusy :=
+  G(request -> F state = busy)
+
+LTLSPEC NAME nowOrNextBusy :=
+  G(request -> (state = busy | X state = busy))
+\end{lstlisting}
+
+Our tool enables the team to check whether this change was indeed a refinement. Intuitively, we generate new LTL specifications checking the comparison via NuSMV. The checks for all properties are shown in Listing~\ref{lst:checks}. 
+
+\begin{lstlisting}[caption=Checks for the semantic comparison of LTL specs \texttt{eventuallyBusy} and \texttt{nowOrNextBusy}, label=lst:checks]
+LTLSPEC -- eventuallyBusy refines nowOrNextBusy
+  (G(request -> F state = busy)) -> 
+  (G(request -> (state = busy | X state = busy)))
+
+LTLSPEC -- nowOrNextBusy refines eventuallyBusy
+  (G(request -> (state = busy | X state = busy))) ->
+  (G(request -> F state = busy))
+\end{lstlisting}
+
+This translation takes \ldots
+
+\section{Implementation}
+We have written our tool in Java. No external libraries were used, but a binary of the NuSMV model checker is required (and provided as part of our code). Our implementation consists of 800 lines of code in 5 different classes. An overview of the classes is given below \ldots
+
+\subsection{Code Example}
+We provide and describe two code examples here.
+
+Some code is shown in Listing.~\ref{lst:code1}.
+
+\begin{lstlisting}[language=Java, caption=RegEx example from the web\\ \url{https://www.baeldung.com/regular-expressions-java}, label=lst:code1]
+@Test
+public void givenRegex_whenMatchesWithMultilineFlag_thenCorrect() {
+    int matches = runTest(
+      "dog$", "This is a dog" + System.getProperty("line.separator") 
+      + "this is a fox", Pattern.MULTILINE);
+ 
+    assertTrue(matches > 0);
+}
+\end{lstlisting}
+
+\subsection{Tool usage}
+Our tool requires Java 11 or later to run. We have included the binaries of NuSMV for Windows 64Bit (x86) and Linux 64Bit (x86). For other platforms, compile and provide the binaries in the subfolder \texttt{./nusmv/bin}.
+
+We implemented a commandline interface with the following options:
+
+\begin{itemize}
+    \item \texttt{\$filename} (mandatory) the name of the file
+    \item \texttt{\$spec1} (mandatory) the name of the first LTLSPEC to check
+    \item \texttt{\$spec2} (mandatory) the name of the second LTLSPEC to check
+    \item \texttt{noModel} (optional) if present the model will be ignored
+    \item \texttt{showExample} (optional) if present the tool will generate counterexamples (for non-refinement, i.e., two if incomparable)
+\end{itemize}
+
+An example execution for the file shown in Listing~\ref{lst:example} would look like this:
+$$\texttt{java -jar ltlcompare.jar arbiter.smv eventuallyBusy nowOrNextBusy}$$
+
+The tool prints an output to the console. The output contains \ldots
+
+\subsection{Limitations of the Implementation}
+Our implementation uses regular expressions to find \texttt{LTLSPEC} blocks within a NuSMV file. In cases where the LTL formula is not terminated with a semicolon or where it contains comments that include a semicolon our approach might not capture the correct formulas. Right now there is no easy mitigation of this limitation other than making sure about the above. An alternative implementation should have been based on a NuSMV parser instead of using regular expressions.
+
+When checking semantic properties of specifications without considering the model our implementation attempts to comment out \texttt{ASSIGN}, \texttt{TRANS}, \texttt{INIT}, and \texttt{INVAR} blocks. Again we identify these blocks using regular expressions, which is prone to the same errors mentioned above. We have decided to follow this approach rather than extracting the variables as the NuSMV files might declare and compose multiple modules whose structure must be preserved. An alternative implementation should have been based on a NuSMV parser instead of using regular expressions.
+
+\section{Evaluation}
+\subsection{Validation}
+To ensure the correctness our implementation we have tested our prototype on many NuSMV files. We have done a semantic comparison of each LTL property $\psi$ against the special properties:
+\begin{itemize}
+    \item $\psi$: must yield equivalence
+    \item \texttt{TRUE}: must yield \texttt{$\psi$ refines TRUE}
+    \item \texttt{FALSE}: must yield \texttt{FALSE refines $\psi$}
+    \item \texttt{!$\psi$}: must yield \texttt{incomparable}    
+\end{itemize}
+
+These checks are automated in \texttt{AllPropCheckTest.java}. We have inspected all failures and concluded that these result only from $\psi$ being either trivially \texttt{FALSE} or trivially \texttt{TRUE}.
+
+We have further checked special cases where we manually designed pairs of specifications to have fixed comparison outcomes. These checks include 17 LTL specification pairs on 9 models and are automated in \texttt{SpecialCasesTest.java}.
+
+\subsection{Performance Cost}
+
+We have analysed the performance cost of the semantic comparison. Our corpus of specifications consists of 30 NuSMV files obtained from public GitHub repositories\footnote{We have used the search query \url{https://github.com/search?l=\&q=module+ltlspec+extension\%3Asmv\&ref=advsearch\&type=Code}}. We have measured the times of the validation checks described above. All experiments were executed on a laptop computer with an i7 CPU at 2.4GHz.
+
+We have computed the average analysis times as 900ms with maximum times at 10sec for specification \ldots.
+
+
+
+\section{Discussion \& Conclusion}
+Eventually, we did a great job in this project and would like to do some extension of it in our MSc thesis.
+
+% ---- Bibliography ----
+\bibliographystyle{splncs04}
+\bibliography{references.bib}
+
+\end{document}
