@@ -7,16 +7,10 @@ entry Cookbook:
     '}';
 
 Ingredient:
-    'ingredient'
-    name=ID
-    amount=INT
-;
+    'ingredient' name=ID amount=INT;
 
 Step:
-    'step'
-    number=INT
-    action=('mix' | 'cook' | 'serve')
-;
+    'step' number=INT action=('add' | 'mix' | 'cook' | 'serve') ingredient=[Ingredient];
 
 terminal ID: /[a-zA-Z_][a-zA-Z0-9_]*/;
 terminal INT returns number: /[0-9]+/;

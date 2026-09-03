@@ -36,6 +36,18 @@ const argBuilders = {
 
     statement(part) {
         return { type: "input_statement", name: part.feature };
+    },
+
+    /**
+     * Cross-references (`feature=[TargetRule:TERMINAL]`) render as a
+     * plain text field: the user types the name of the element being
+     * referenced, exactly as it would appear in the DSL's own concrete
+     * syntax (a bare identifier). There's no Blockly "check" type here
+     * because - unlike a "value" plug-in socket - a reference isn't
+     * connected to the other block, it just names it by string.
+     */
+    reference(part) {
+        return { type: "field_input", name: part.feature, text: "" };
     }
 };
 

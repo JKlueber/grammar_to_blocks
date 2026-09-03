@@ -2,10 +2,15 @@ import { isParserRule } from './ast-utils.js';
 
 /**
  * Node types currently supported end-to-end (parser rules, groups,
- * alternatives, assignments, keywords, rule calls). Extend this set
- * (or pass a custom `allowedTypes` option) to support more Langium
- * constructs, e.g. add "UnorderedGroup" or "CrossReference" once the
- * IR builder and generators know how to handle them.
+ * alternatives, assignments, keywords, rule calls, cross-references).
+ * Extend this set (or pass a custom `allowedTypes` option) to support
+ * more Langium constructs, e.g. add "UnorderedGroup" once the IR builder
+ * and generators know how to handle it.
+ *
+ * "CrossReference" (`feature=[TargetRule:TERMINAL]`, e.g.
+ * `assignee=[Member:ID]`) is allowed here; see ir-builder.js for how it's
+ * turned into a block input and blockly-ts-target.js for how that input
+ * is rendered.
  */
 export const DEFAULT_ALLOWED_TYPES = new Set([
     'Grammar',
@@ -14,7 +19,8 @@ export const DEFAULT_ALLOWED_TYPES = new Set([
     'Alternatives',
     'Assignment',
     'Keyword',
-    'RuleCall'
+    'RuleCall',
+    'CrossReference'
 ]);
 
 /**
@@ -87,6 +93,7 @@ export function validateGrammar(grammar, options = {}) {
 
             case "RuleCall":
             case "Keyword":
+            case "CrossReference":
                 // leaf nodes, nothing further to check
                 break;
         }

@@ -2,7 +2,7 @@ import { isParserRule } from './ast-utils.js';
 
 /**
  * @typedef {Object} IRPart
- * @property {"keyword"|"field"|"dropdown"|"value"|"statement"} kind
+ * @property {"keyword"|"field"|"dropdown"|"value"|"statement"|"reference"} kind
  * @property {string} [text]        - literal text, for "keyword" parts
  * @property {string} [feature]     - grammar feature name, for the other
  *   kinds. For a "statement" part produced by merging several alternative
@@ -11,9 +11,9 @@ import { isParserRule } from './ast-utils.js';
  * @property {"text"|"number"} [fieldType] - for "field" parts
  * @property {Array<[string,string]>} [options] - for "dropdown" parts
  * @property {string} [refRuleName] - the referenced parser rule, for "value"
- *   parts and for the common single-rule "statement" case (`feature+=Rule`).
- *   Left undefined when a "statement" part has more than one possible rule
- *   (see refRuleNames).
+ *   parts, "reference" parts, and for the common single-rule "statement"
+ *   case (`feature+=Rule`). Left undefined when a "statement" part has more
+ *   than one possible rule (see refRuleNames).
  * @property {string[]} [refRuleNames] - every parser rule that is allowed to
  *   fill a "statement" part. Holds a single entry (`[refRuleName]`) for a
  *   plain `feature+=Rule` assignment; holds one entry per branch for a
@@ -125,6 +125,21 @@ const nodeHandlers = {
             feature: ctx.nextAnonymousFeature(),
             refRuleName: node.rule?.ref?.name
         });
+    },
+
+    /**
+     * A bare (unassigned) `[TargetRule:TERMINAL]` cross-reference -
+     * uncommon (cross-references are almost always written as
+     * `feature=[TargetRule:TERMINAL]`, handled in handleAssignment
+     * below), kept for forward compatibility just like the bare RuleCall
+     * handler above.
+     */
+    CrossReference(node, ctx) {
+        ctx.parts.push({
+            kind: "reference",
+            feature: ctx.nextAnonymousFeature(),
+            refRuleName: node.type?.ref?.name
+        });
     }
 };
 
@@ -148,12 +163,13 @@ function visit(node, ctx) {
  * matching IRPart. This is where most of the "what does this grammar
  * feature mean as a Blockly input" mapping decisions live:
  *
- *   - `feature += X`            -> "statement" (see below)
- *   - `feature = ID`            -> "field" (fieldType: "text")
- *   - `feature = INT`           -> "field" (fieldType: "number")
- *   - `feature = SomeOtherRule` -> "value" (a plug-in input_value socket)
- *   - `feature = (A | B | C)`   -> "dropdown", if A/B/C are all keywords
- *   - anything else             -> generic "value" fallback
+ *   - `feature += X`                 -> "statement" (see below)
+ *   - `feature = ID`                 -> "field" (fieldType: "text")
+ *   - `feature = INT`                -> "field" (fieldType: "number")
+ *   - `feature = SomeOtherRule`      -> "value" (a plug-in input_value socket)
+ *   - `feature = [OtherRule:ID]`     -> "reference" (see below)
+ *   - `feature = (A | B | C)`        -> "dropdown", if A/B/C are all keywords
+ *   - anything else                  -> generic "value" fallback
  */
 function handleAssignment(node, ctx) {
 
@@ -192,6 +208,35 @@ function handleAssignment(node, ctx) {
 
     const terminal = node.terminal;
 
+    /**
+     * Cross-references (`feature=[TargetRule:TERMINAL]`, e.g.
+     * `assignee=[Member:ID]`) are Langium's way of *linking to* an
+     * already-declared element by name, instead of nesting a new one.
+     * There's no built-in Blockly widget for "pick an existing block
+     * instance by name", so - to keep the pipeline simple - we render a
+     * cross-reference the same way the concrete syntax itself represents
+     * it: as a plain text field the user types the target element's name
+     * into (see the "reference" case in blockly-ts-target.js's
+     * partToArg/ruleToGeneratorFunction). This needs no new Blockly
+     * connection ("check") type and round-trips losslessly, since the
+     * DSL's own text is just that ID token.
+     *
+     * `node.type.ref` is the referenced *parser rule* (e.g. `Member`);
+     * `refRuleName` is recorded mainly for documentation/tooling - the
+     * generated field doesn't validate that the typed name actually
+     * refers to an existing block of that type.
+     */
+    if (terminal?.$type === "CrossReference") {
+        ctx.parts.push({
+            kind: "reference",
+            feature: node.feature,
+            refRuleName: terminal.type?.ref?.name,
+            optional,
+            repeatable
+        });
+        return;
+    }
+
     if (terminal?.$type === "RuleCall") {
 
         const refName = terminal.rule?.ref?.name;
@@ -229,8 +274,8 @@ function handleAssignment(node, ctx) {
         }
     }
 
-    // Anything else (mixed alternatives, groups, cross-references once
-    // supported, ...) becomes a generic plug-in value input.
+    // Anything else (mixed alternatives, groups, etc.) becomes a generic
+    // plug-in value input.
     ctx.parts.push({ kind: "value", feature: node.feature, optional, repeatable });
 }
 
@@ -261,10 +306,10 @@ export function buildIR(grammar, options = {}) {
         const ctx = {
             parts: [],
             warnings,
-            // Anonymous IR parts (dropdowns/values with no `feature=` in
-            // the grammar) still need a unique name to key off of in the
-            // generated Blockly JSON/code, so mint anon0, anon1, ... per
-            // rule as they're encountered.
+            // Anonymous IR parts (dropdowns/values/references with no
+            // `feature=` in the grammar) still need a unique name to key
+            // off of in the generated Blockly JSON/code, so mint anon0,
+            // anon1, ... per rule as they're encountered.
             nextAnonymousFeature: () => `anon${anon++}`
         };
 

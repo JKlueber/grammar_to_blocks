@@ -56,7 +56,7 @@ export function defineBlocks() {
       },
       {
         "type": "step",
-        "message0": "step Number: %1 Action: %2",
+        "message0": "step Number: %1 Action: %2 Ingredient: %3",
         "args0": [
           {
             "type": "field_number",
@@ -67,6 +67,10 @@ export function defineBlocks() {
             "type": "field_dropdown",
             "name": "ACTION",
             "options": [
+              [
+                "add",
+                "add"
+              ],
               [
                 "mix",
                 "mix"
@@ -80,6 +84,11 @@ export function defineBlocks() {
                 "serve"
               ]
             ]
+          },
+          {
+            "type": "field_input",
+            "name": "INGREDIENT",
+            "text": "target_ingredient"
           }
         ],
         "colour": 52,

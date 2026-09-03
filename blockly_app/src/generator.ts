@@ -30,6 +30,7 @@ generator.forBlock['ingredient'] = function (block: Blockly.Block): string {
 generator.forBlock['step'] = function (block: Blockly.Block): string {
   const number = block.getFieldValue('NUMBER') || 'Unnamed';
   const action = block.getFieldValue('ACTION') || 'Unnamed';
-  const code = ("step" + ' ' + number + ' ' + action).trim();
+  const ingredient = block.getFieldValue('INGREDIENT') || 'Unnamed';
+  const code = ("step" + ' ' + number + ' ' + action + ' ' + ingredient).trim();
   return code + '\n';
 };

@@ -91,9 +91,15 @@ function partToArg(part, stackTypes, valueRules) {
 
     const arg = { ...builder(part), name: toArgName(part.feature) };
 
-    // Provide helpful default text for text fields so generated code is never empty
+    // Provide helpful default text for text fields so generated code is
+    // never empty. This covers both plain "field" text inputs and
+    // "reference" inputs (cross-references), which are also rendered as
+    // field_input under the hood - see the "reference" builder in
+    // block-json-generator.js.
     if (arg.type === "field_input" && !arg.text) {
-        arg.text = "Unnamed";
+        arg.text = part.kind === "reference"
+            ? "target_" + part.feature
+            : "Unnamed";
     }
 
     if (part.kind === "statement") {
@@ -107,6 +113,12 @@ function partToArg(part, stackTypes, valueRules) {
     } else if (part.kind === "value" && part.refRuleName) {
         arg.check = part.refRuleName.toLowerCase();
     }
+
+    // NOTE: "reference" parts (cross-references) deliberately get no
+    // `arg.check`. A "check" type is Blockly's plug-compatibility rule
+    // for *nested* value blocks; a cross-reference isn't nesting another
+    // block, it's just naming one by typed-in text, so there's nothing
+    // to type-check at the Blockly level.
 
     return arg;
 }
@@ -210,7 +222,14 @@ function ruleToGeneratorFunction(rule, stackTypes, valueRules) {
         const argName = toArgName(part.feature);
         const isConvertedValueField = part.kind === "value" && part.refRuleName && !valueRules.has(part.refRuleName.toLowerCase());
 
-        if (part.kind === "field" || part.kind === "dropdown" || isConvertedValueField) {
+        // "field" (ID/INT text/number inputs), "dropdown", a "value" part
+        // that got converted to a plain text field (no matching value
+        // block exists), and "reference" (cross-reference) parts are all
+        // backed by a single Blockly field, so they're all read back the
+        // same way via getFieldValue - a cross-reference's field just
+        // happens to hold the referenced element's name as plain text,
+        // which is exactly what the original DSL syntax expects there.
+        if (part.kind === "field" || part.kind === "dropdown" || part.kind === "reference" || isConvertedValueField) {
             setupLines.push(`  const ${varName} = block.getFieldValue('${argName}') || 'Unnamed';`);
             items.push({ frag: varName, multiline: false });
         } else if (part.kind === "value") {
