@@ -130,11 +130,11 @@ node, with `.rules` being the list of parser/terminal rules.
 
 Small `$type`-checking helpers (`isParserRule`, `isTerminalRule`,
 `isKeyword`, `isAssignment`, `isGroup`, `isAlternatives`, `isRuleCall`,
-`isAction`, plus `getCardinality(node)` for reading a node's `?`/`*`/`+`
-repetition marker) used by the validator and IR builder so nobody has to
-compare `.$type` string literals by hand. Also declares (but doesn't yet
-use) `isUnorderedGroup` and `isCrossReference`, left as forward-compatibility
-hooks for when those Langium constructs get support added.
+`isCrossReference`, plus `getCardinality(node)` for reading a node's
+`?`/`*`/`+` repetition marker) used by the validator and IR builder so
+nobody has to compare `.$type` string literals by hand. Also declares (but
+doesn't yet use) `isUnorderedGroup`, left as a forward-compatibility hook
+for when that Langium construct gets support added.
 
 ### `generate_blockly/src/validator.js` — enforcing the supported subset
 
@@ -143,7 +143,7 @@ definition tree (terminal rules are skipped) and collects — rather than
 throws on the first — every construct that falls outside:
 
 - `DEFAULT_ALLOWED_TYPES`: `Grammar`, `ParserRule`, `Group`, `Alternatives`,
-  `Assignment`, `Keyword`, `RuleCall`.
+  `Assignment`, `Keyword`, `RuleCall`, `CrossReference`.
 - `DEFAULT_ALLOWED_CARDINALITIES`: no cardinality at all, `?`, `*`, `+`.
 
 If it finds unsupported node types or cardinalities anywhere in a rule, it
@@ -151,11 +151,15 @@ throws one `Error` whose message lists every problem found, each tagged with
 the rule it came from (so you get a full report instead of playing whack-a-mole).
 On success it returns `true`.
 
+`CrossReference` nodes (`feature=[TargetRule:TERMINAL]`) are treated as a
+leaf, the same as `Keyword`/`RuleCall` — the validator doesn't need to
+descend into the reference's own target-rule/terminal, since there's nothing
+underneath it that could itself violate the subset.
+
 You can override which types/cardinalities are allowed via
 `options.allowedTypes` / `options.allowedCardinalities` if you extend the
 rest of the pipeline to support more constructs (the file's docstring
-specifically calls out `UnorderedGroup` and `CrossReference` as the likely
-next additions).
+specifically calls out `UnorderedGroup` as the likely next addition).
 
 ### `generate_blockly/src/ir-builder.js` — grammar AST → IR
 
@@ -169,17 +173,18 @@ RuleIR = {
 }
 
 IRPart = {
-  kind: "keyword" | "field" | "dropdown" | "value" | "statement",
+  kind: "keyword" | "field" | "dropdown" | "value" | "statement" | "reference",
   text?: string,              // literal text, for "keyword"
   feature?: string,            // grammar feature name, for the other kinds
                                 //   (see "merged statement parts" below for
                                 //   how this is derived when several
                                 //   features feed one shared input)
-  fieldType?: "text"|"number", // for "field"
+  fieldType?: "text"|"number", // for "field" parts
   options?: [string,string][], // for "dropdown"
-  refRuleName?: string,        // the referenced rule, for "value" parts and
-                                //   for the common single-rule "statement"
-                                //   case (feature+=Rule); undefined when a
+  refRuleName?: string,        // the referenced rule, for "value" parts,
+                                //   "reference" parts (see below), and for
+                                //   the common single-rule "statement" case
+                                //   (feature+=Rule); undefined when a
                                 //   "statement" part names more than one rule
   refRuleNames?: string[],     // every rule allowed to fill a "statement"
                                 //   part - see below
@@ -189,8 +194,8 @@ IRPart = {
 ```
 
 Traversal is dispatched through the `nodeHandlers` registry (`Group`,
-`Alternatives`, `Keyword`, `Assignment`, `RuleCall`), each appending
-`IRPart`s to a per-rule context. The interesting decisions:
+`Alternatives`, `Keyword`, `Assignment`, `RuleCall`, `CrossReference`), each
+appending `IRPart`s to a per-rule context. The interesting decisions:
 
 - **`Assignment` (`feature=...`)** is where most of the mapping logic lives
   (`handleAssignment`):
@@ -203,8 +208,11 @@ Traversal is dispatched through the `nodeHandlers` registry (`Group`,
     built the part — see the next bullet.
   - `feature=ID` / `feature=INT` become `"field"` IR parts (`field_input` /
     `field_number` in Blockly terms).
+  - **`feature=[TargetRule:TERMINAL]` (a cross-reference, e.g.
+    `assignee=[Member:ID]`) becomes a `"reference"` IR part.** See
+    "How cross-references work" below.
   - `feature=SomeOtherRule` becomes a `"value"` IR part (a plug-in
-    `input_value` socket) tagged with `refRuleName`.
+    `input_value` socket).
   - `feature=(A | B | C)` where all alternatives are keywords becomes a
     `"dropdown"` IR part with one `[label, value]` option per keyword.
   - Anything else (mixed alternatives, nested groups, etc.) falls back to a
@@ -236,12 +244,52 @@ Traversal is dispatched through the `nodeHandlers` registry (`Group`,
 - **Bare `RuleCall`** (no assignment) becomes an anonymous `"value"` part —
   kept mostly for forward compatibility, since the restricted subset
   doesn't commonly produce these.
+- **Bare `CrossReference`** (no assignment) becomes an anonymous
+  `"reference"` part — again mostly for forward compatibility, since
+  cross-references almost always appear behind a `feature=` assignment.
 - Any node type with no registered handler pushes a warning and is skipped
   rather than crashing the whole build.
 
 Warnings collected during the walk are all passed to `options.onWarning`
 (if provided) once IR building finishes — `parse.js` wires this to
 `console.warn`.
+
+#### How cross-references work
+
+A Langium cross-reference (`feature=[TargetRule:TERMINAL]`, e.g.
+`assignee=[Member:ID]` in `Task`) means "point at an *already-declared*
+`Member` by the name it was given", as opposed to `assignee=Member`, which
+would mean "nest a brand-new `Member` right here".
+
+Blockly has no built-in widget for "pick an existing block instance by
+name" (that would need a live index of every block on the workspace and a
+custom field). To keep the pipeline simple, a cross-reference is rendered
+the same way the DSL's own *concrete syntax* already represents it: as a
+plain text field the user types the target's name into — exactly the
+identifier token Langium would parse there. Concretely:
+
+1. **`ir-builder.js`** turns the assignment into an IR part with
+   `kind: "reference"` and `refRuleName` set to the *referenced* parser
+   rule (`terminal.type?.ref?.name`, i.e. `"Member"` for `assignee`). No
+   `check`/socket typing is generated for it — a `"value"` part is a plug
+   that must be filled by a block of a matching type; a `"reference"` part
+   is just a name typed as text, so there is nothing to type-check.
+2. **`block-json-generator.js`** (and, through its shared `argBuilders`,
+   `blockly-ts-target.js`) render a `"reference"` part exactly like a
+   `field_input`, defaulted to `target_<feature>` placeholder text so the
+   block is never blank before the user edits it.
+3. **`blockly-ts-target.js`**'s generator output reads a `"reference"`
+   field back with `block.getFieldValue(...)`, the same call used for plain
+   `"field"` (ID/INT) inputs, and splices the typed text straight into the
+   reconstructed DSL source. This is what makes it round-trip losslessly:
+   whatever name the user types is exactly what ends up next to `assignee`
+   in the generated code, with no extra lookup or validation layer needed.
+
+In short: a cross-reference is treated as "just another identifier token" at
+the Blockly layer, matching how lightweight the construct already is in the
+DSL's own grammar. The trade-off is that Blockly can't verify the typed name
+actually matches an existing block — that's the DSL/consumer's job, same as
+it would be if you hand-wrote the `.langium` source directly.
 
 ### `generate_blockly/src/blockly-ts-target.js` — IR → the actual output files
 
@@ -262,17 +310,23 @@ at the end of this section). It exports three functions:
   of its own `+=` list reduces to just its own lowercase name, so existing
   single-type grammars generate identical output to before this feature
   was added. Rules that aren't a `+=` target at all get `null`/`null`.
+  `"reference"` (cross-reference) parts never get a `check`, since — unlike
+  `"value"` parts — they aren't a socket another block plugs into; see
+  "How cross-references work" above.
 - **`generateGeneratorTs(irRules)`** → contents of `generator.ts`. For each
   rule, emits a `generator.forBlock['<ruletype>'] = function (block) {...}`
-  that reads each field/value/statement input back out (via
+  that reads each field/value/statement/reference input back out (via
   `block.getFieldValue`, `generator.valueToCode`, or
   `generator.statementToCode`) and concatenates them — keywords included —
   back into the rule's original concrete syntax, trimmed of extra
   whitespace where relevant. This is a **round-tripping** strategy: it
-  reconstructs the DSL's own text, not some other target language. If you
-  want a block to actually *compile to something else* (the way the
-  hand-written `rbac_*` blocks referenced in the code comments apparently
-  do), you edit the generated function by hand afterwards.
+  reconstructs the DSL's own text, not some other target language. `"field"`,
+  `"dropdown"`, and `"reference"` parts are all read back with the same
+  `block.getFieldValue(...)` call, since they're all backed by a single
+  Blockly field. If you want a block to actually *compile to something
+  else* (the way the hand-written `rbac_*` blocks referenced in the code
+  comments apparently do), you edit the generated function by hand
+  afterwards.
 - **`generateMainTs(irRules)`** → contents of `main.ts`. Wires up
   `defineBlocks()`, injects the Blockly workspace into `#blocklyDiv` with a
   flyout toolbox listing one block per rule, and adds a change listener
@@ -290,7 +344,9 @@ as-is (not upper-snake-cased) and every block defaults to
 in a `+=` list (this file predates the merged-statement/`refRuleNames`
 support described above, so it doesn't compute shared "check" types).
 Also exports its `argBuilders` registry, which `blockly-ts-target.js`
-actually imports and reuses. Useful if you want Blockly JSON without the
+actually imports and reuses — this is the single place that knows how to
+turn each `IRPart.kind` (including `"reference"`) into Blockly JSON, so both
+targets stay in sync. Useful if you want Blockly JSON without the
 TypeScript/generator/main scaffolding that `blockly-ts-target.js` produces.
 
 ### `generate_blockly/src/code-generator.js` — standalone JS forBlock generator (not called by `parse.js`)
@@ -353,9 +409,9 @@ allows only:
 | `Assignment` (`feature=`, `feature+=`) | ✅ |
 | `Keyword` (literal text) | ✅ |
 | `RuleCall` (reference to another rule) | ✅ |
+| `CrossReference` (`feature=[TargetRule:TERMINAL]`) | ✅ rendered as a plain text field holding the target's name — see "How cross-references work" above |
 | Cardinality `?`, `*`, `+`, none | ✅ |
-| `UnorderedGroup` | ❌ not yet — flagged by the validator, hooks exist in `ast-utils.js`/`ir-builder.js` |
-| `CrossReference` | ❌ not yet — same |
+| `UnorderedGroup` | ❌ not yet — flagged by the validator, hooks exist in `ast-utils.js` |
 | `Action` | ❌ not referenced by the validator's allowed-types set |
 | Any other cardinality value | ❌ |
 
@@ -364,12 +420,23 @@ throws an `Error` listing every offending location — nothing is generated.
 
 `ID`-typed and `INT`-typed features become Blockly `field_input` /
 `field_number` inputs; any other rule reference becomes a plug-in
-`input_value` socket; `feature+=X` becomes a stacking `input_statement`
-socket, and `X`'s own block gets self-typed `previousStatement`/
-`nextStatement` so multiple instances chain together. When several `+=`
-branches are merged via alternatives (`(a+=A | b+=B)*`), every named rule
-instead gets a shared check type so instances of *any* of them can chain
-together in that one input — see "merged statement parts" above.
+`input_value` socket; a cross-reference (`feature=[TargetRule:TERMINAL]`)
+becomes a plain `field_input` holding the referenced element's name as
+typed text (no socket/"check" type, since nothing is actually plugged in —
+see "How cross-references work" above); `feature+=X` becomes a stacking
+`input_statement` socket, and `X`'s own block gets self-typed
+`previousStatement`/`nextStatement` so multiple instances chain together.
+When several `+=` branches are merged via alternatives (`(a+=A | b+=B)*`),
+every named rule instead gets a shared check type so instances of *any* of
+them can chain together in that one input — see "merged statement parts"
+above.
+
+> `generate_blockly/input/invalid.langium`'s `Task` rule uses
+> `assignee=[Member:ID]`, a cross-reference — this now parses and generates
+> a block successfully, since cross-references are part of the supported
+> subset. That file's name/warning value now comes only from its other
+> construct(s); check the validator's error output for the current file to
+> see exactly what (if anything) it still rejects.
 
 ---
 
@@ -388,6 +455,11 @@ places:
    `code-generator.js` if you use those instead) — if it's a genuinely new
    `IRPart.kind`, add an entry to the relevant `argBuilders`/
    `partTemplates` registry so the JSON/codegen output knows how to render it.
+
+The cross-reference feature (`CrossReference` → `"reference"` IRPart) is a
+worked example of exactly this three-step extension — see the diffs in
+`validator.js`, `ir-builder.js`, `block-json-generator.js`, and
+`blockly-ts-target.js`, plus the "How cross-references work" section above.
 
 ---
 
