@@ -1,4 +1,5 @@
 import { argBuilders } from './block-json-generator.js';
+import { computeNameFields } from './ir-builder.js';
 
 function toArgName(feature) {
     return feature
@@ -72,7 +73,7 @@ function colourForRule(name) {
     return hash % 360;
 }
 
-function partToArg(part, stackTypes, valueRules) {
+function partToArg(part, stackTypes, valueRules, nameFields) {
     if (part.kind === "value" && part.refRuleName) {
         const refLower = part.refRuleName.toLowerCase();
         if (!valueRules.has(refLower)) {
@@ -89,13 +90,30 @@ function partToArg(part, stackTypes, valueRules) {
     if (!builder)
         throw new Error(`No block-json builder for IR part kind "${part.kind}"`);
 
-    const arg = { ...builder(part), name: toArgName(part.feature) };
+    // nameFields is only read by argBuilders.reference (see
+    // block-json-generator.js); every other builder ignores the extra
+    // argument, same as in that file's own partToArg.
+    const arg = { ...builder(part, nameFields), name: toArgName(part.feature) };
 
-    // Provide helpful default text for text fields so generated code is
-    // never empty. This covers both plain "field" text inputs and
-    // "reference" inputs (cross-references), which are also rendered as
-    // field_input under the hood - see the "reference" builder in
-    // block-json-generator.js.
+    // argBuilders.reference (block-json-generator.js) returns nameField
+    // as the *raw* feature name (e.g. "name"), because that's what its
+    // own args use unconverted. This target, unlike that one, upper-snake
+    // -cases every arg name (see toArgName above and block[NAME] JSON
+    // just built for the target rule's own field) - so the raw feature
+    // name has to go through the same conversion here, or field_reference
+    // would call block.getFieldValue() with a name that doesn't exist on
+    // the target block, and the dropdown would always look empty.
+    if (arg.type === "field_reference" && arg.nameField) {
+        arg.nameField = toArgName(arg.nameField);
+    }
+
+    // Provide helpful default text for plain text fields so generated
+    // code is never empty. This covers "field" text inputs and the
+    // text-field *fallback* a "reference" part gets when its target rule
+    // has no name to build a dropdown from (see argBuilders.reference in
+    // block-json-generator.js). A "reference" part that resolved to the
+    // dynamic field_reference field is skipped here - that field type
+    // has no "text" default, it picks its first live option instead.
     if (arg.type === "field_input" && !arg.text) {
         arg.text = part.kind === "reference"
             ? "target_" + part.feature
@@ -115,15 +133,17 @@ function partToArg(part, stackTypes, valueRules) {
     }
 
     // NOTE: "reference" parts (cross-references) deliberately get no
-    // `arg.check`. A "check" type is Blockly's plug-compatibility rule
-    // for *nested* value blocks; a cross-reference isn't nesting another
-    // block, it's just naming one by typed-in text, so there's nothing
-    // to type-check at the Blockly level.
+    // `arg.check`, whether they render as the dynamic field_reference or
+    // the plain-text fallback. A "check" type is Blockly's
+    // plug-compatibility rule for *nested* value blocks; a reference
+    // isn't nesting another block, it's naming one - via a live-scanned
+    // dropdown or typed text - so there's nothing to type-check at the
+    // Blockly connection level.
 
     return arg;
 }
 
-function ruleToBlockJson(rule, stackTypes, valueRules) {
+function ruleToBlockJson(rule, stackTypes, valueRules, nameFields) {
     const block = { type: rule.name.toLowerCase() };
     const ruleLower = rule.name.toLowerCase();
 
@@ -161,13 +181,13 @@ function ruleToBlockJson(rule, stackTypes, valueRules) {
         if (part.kind === "statement") {
             flushLine();
             block[`message${messageIndex}`] = `${humanizeFeature(part.feature)}: %1`;
-            block[`args${messageIndex}`] = [partToArg(part, stackTypes, valueRules)];
+            block[`args${messageIndex}`] = [partToArg(part, stackTypes, valueRules, nameFields)];
             messageIndex++;
             continue;
         }
 
         currentMsg.push(`${humanizeFeature(part.feature)}: %${placeholder++}`);
-        currentArgs.push(partToArg(part, stackTypes, valueRules));
+        currentArgs.push(partToArg(part, stackTypes, valueRules, nameFields));
     }
 
     flushLine();
@@ -193,10 +213,21 @@ function ruleToBlockJson(rule, stackTypes, valueRules) {
 export function generateBlocksTs(irRules) {
     const stackTypes = computeStackTypes(irRules);
     const valueRules = computeValueRules(irRules, stackTypes);
-    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackTypes, valueRules));
+    const nameFields = computeNameFields(irRules);
+    const blocks = irRules.map(rule => ruleToBlockJson(rule, stackTypes, valueRules, nameFields));
     const blocksLiteral = indent(JSON.stringify(blocks, null, 2), 4);
 
+    // './reference-field' is a static, hand-maintained module (not
+    // regenerated by this pipeline - see blockly_app/src/reference-field.ts)
+    // that defines and registers the custom `field_reference` field used
+    // by any cross-reference part above that resolved to a live dropdown
+    // (see argBuilders.reference in block-json-generator.js). It's
+    // imported here purely for its registration side effect, so the
+    // field type exists before Blockly ever tries to render a block that
+    // uses it. Importing it is harmless even for grammars with no
+    // cross-references at all.
     return `import * as Blockly from 'blockly';
+import './reference-field';
 
 export function defineBlocks() {
   Blockly.defineBlocksWithJsonArray(

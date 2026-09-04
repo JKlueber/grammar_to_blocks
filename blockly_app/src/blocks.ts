@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly';
+import './reference-field';
 
 export function defineBlocks() {
   Blockly.defineBlocksWithJsonArray(
@@ -86,9 +87,10 @@ export function defineBlocks() {
             ]
           },
           {
-            "type": "field_input",
+            "type": "field_reference",
             "name": "INGREDIENT",
-            "text": "target_ingredient"
+            "referencesType": "ingredient",
+            "nameField": "NAME"
           }
         ],
         "colour": 52,

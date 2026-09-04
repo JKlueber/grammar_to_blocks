@@ -1,3 +1,5 @@
+import { computeNameFields } from './ir-builder.js';
+
 /**
  * Standalone RuleIR[] -> Blockly JSON generator.
  *
@@ -17,6 +19,11 @@
  * Registry mapping IR part "kind" -> Blockly arg0 builder. Extend this to
  * support new IR part kinds (e.g. a future "optional_value") without
  * touching ruleToBlockJson.
+ *
+ * Every builder is called as `builder(part, nameFields)`. Only
+ * `reference` currently reads the second argument (see below); the
+ * others ignore it, but it's passed uniformly so partToArg doesn't need
+ * to special-case any one kind.
  */
 const argBuilders = {
 
@@ -40,28 +47,48 @@ const argBuilders = {
 
     /**
      * Cross-references (`feature=[TargetRule:TERMINAL]`) render as a
-     * plain text field: the user types the name of the element being
-     * referenced, exactly as it would appear in the DSL's own concrete
-     * syntax (a bare identifier). There's no Blockly "check" type here
-     * because - unlike a "value" plug-in socket - a reference isn't
-     * connected to the other block, it just names it by string.
+     * dynamic dropdown, backed by the custom `field_reference` field
+     * (defined in blockly_app/src/reference-field.ts - see that file for
+     * the actual live-scanning logic). Instead of typing the target's
+     * name as free text, the field scans the current workspace for every
+     * block of type `referencesType` and offers each one's declared name
+     * (read from its `nameField`) as an option - so a reference can only
+     * ever point at something that currently exists.
+     *
+     * `nameFields` (built once per generation run by
+     * ir-builder.js#computeNameFields) tells us which arg on the *target*
+     * rule holds its name. If the target rule has no such field, there's
+     * nothing to scan for and we fall back to the old plain text field -
+     * this keeps the pipeline from crashing on grammars where the
+     * referenced rule doesn't happen to declare a name via `feature=ID`.
      */
-    reference(part) {
-        return { type: "field_input", name: part.feature, text: "" };
+    reference(part, nameFields) {
+        const nameField = part.refRuleName && nameFields?.get(part.refRuleName.toLowerCase());
+
+        if (!nameField) {
+            return { type: "field_input", name: part.feature, text: "" };
+        }
+
+        return {
+            type: "field_reference",
+            name: part.feature,
+            referencesType: part.refRuleName.toLowerCase(),
+            nameField
+        };
     }
 };
 
-function partToArg(part) {
+function partToArg(part, nameFields) {
 
     const builder = argBuilders[part.kind];
 
     if (!builder)
         throw new Error(`No block-json builder for IR part kind "${part.kind}"`);
 
-    return builder(part);
+    return builder(part, nameFields);
 }
 
-function ruleToBlockJson(rule) {
+function ruleToBlockJson(rule, nameFields) {
 
     const block = {
         type: rule.name.toLowerCase(),
@@ -86,7 +113,7 @@ function ruleToBlockJson(rule) {
         // "optional input" concept). A future version could turn
         // `optional: true` parts into a mutator that toggles the input.
         block.message0 += `%${placeholder++} `;
-        block.args0.push(partToArg(part));
+        block.args0.push(partToArg(part, nameFields));
     }
 
     block.message0 = block.message0.trim();
@@ -100,7 +127,8 @@ function ruleToBlockJson(rule) {
  *   `Blockly.defineBlocksWithJsonArray(blocks)`.
  */
 export function generateBlockJson(irRules) {
-    return irRules.map(ruleToBlockJson);
+    const nameFields = computeNameFields(irRules);
+    return irRules.map(rule => ruleToBlockJson(rule, nameFields));
 }
 
 export { argBuilders };

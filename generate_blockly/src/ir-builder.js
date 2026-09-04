@@ -325,6 +325,51 @@ export function buildIR(grammar, options = {}) {
     return rules;
 }
 
+/**
+ * Finds the "identifying" field of a rule - the feature Blockly should
+ * treat as that rule's declared name when something else in the grammar
+ * points at it via a cross-reference (`feature=[TargetRule:TERMINAL]`).
+ *
+ * There's no explicit "this is the name" marker in a Langium grammar, so
+ * we use the convention every example grammar in this repo already
+ * follows: the rule's first plain *text* field (i.e. its first
+ * `feature=ID` assignment - `name=ID`, `title=ID`, ...). Number fields
+ * and dropdowns are skipped, since they're not how declared elements are
+ * named in the DSL's own concrete syntax.
+ *
+ * Returns undefined if the rule has no text field at all. Callers (see
+ * the "reference" case in block-json-generator.js) should fall back to a
+ * plain, non-dynamic text input for any cross-reference that targets
+ * such a rule, since there's nothing to build a name list from.
+ *
+ * @param {RuleIR} rule
+ * @returns {string|undefined} the target rule's name feature, if any
+ */
+export function findNameField(rule) {
+    const textField = rule.parts.find(p => p.kind === "field" && p.fieldType === "text");
+    return textField?.feature;
+}
+
+/**
+ * Convenience wrapper: builds a Map from lowercased rule name -> that
+ * rule's name field (see findNameField above), for every rule that has
+ * one. Both TS targets (block-json-generator.js / blockly-ts-target.js)
+ * use this to wire a "reference" IR part's dynamic dropdown up to the
+ * right field on the rule it targets.
+ *
+ * @param {RuleIR[]} irRules
+ * @returns {Map<string, string>} ruleName.toLowerCase() -> name feature
+ */
+export function computeNameFields(irRules) {
+    const nameFields = new Map();
+    for (const rule of irRules) {
+        const nameField = findNameField(rule);
+        if (nameField)
+            nameFields.set(rule.name.toLowerCase(), nameField);
+    }
+    return nameFields;
+}
+
 // Exported so callers (or future support for new node types) can extend
 // the registry: `nodeHandlers.UnorderedGroup = (node, ctx) => {...}`.
 export { nodeHandlers };

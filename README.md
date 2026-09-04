@@ -81,8 +81,14 @@ generate_blockly/
 blockly_app/
   index.html               page hosting the Blockly workspace + code/error panels
   src/
+    reference-field.ts       STATIC (hand-maintained, never overwritten):
+                              FieldReference, the custom dropdown field
+                              backing cross-references - see "How
+                              cross-references work" below
     main.ts                 generated: workspace + toolbox + change listener
     blocks.ts                generated: Blockly.defineBlocksWithJsonArray(...)
+                              (imports reference-field.ts for its
+                              registration side effect)
     generator.ts              generated: generator.forBlock[...] functions
 
 package.json / package-lock.json  npm project + dependency lockfile (blockly, langium, vite, TS)
@@ -261,35 +267,65 @@ A Langium cross-reference (`feature=[TargetRule:TERMINAL]`, e.g.
 `Member` by the name it was given", as opposed to `assignee=Member`, which
 would mean "nest a brand-new `Member` right here".
 
-Blockly has no built-in widget for "pick an existing block instance by
-name" (that would need a live index of every block on the workspace and a
-custom field). To keep the pipeline simple, a cross-reference is rendered
-the same way the DSL's own *concrete syntax* already represents it: as a
-plain text field the user types the target's name into — exactly the
-identifier token Langium would parse there. Concretely:
+Blockly has no *built-in* widget for "pick an existing block instance by
+name" — a plain `field_dropdown`'s option list is fixed at block-definition
+time, and a cross-reference's valid options change as the user adds,
+renames, or removes blocks on the workspace. So this pipeline ships a small
+**custom field**, `FieldReference` (see
+`blockly_app/src/reference-field.ts`), whose option list is computed live
+by scanning the workspace every time the dropdown is opened. Concretely,
+across the four files involved:
 
 1. **`ir-builder.js`** turns the assignment into an IR part with
    `kind: "reference"` and `refRuleName` set to the *referenced* parser
-   rule (`terminal.type?.ref?.name`, i.e. `"Member"` for `assignee`). No
-   `check`/socket typing is generated for it — a `"value"` part is a plug
-   that must be filled by a block of a matching type; a `"reference"` part
-   is just a name typed as text, so there is nothing to type-check.
-2. **`block-json-generator.js`** (and, through its shared `argBuilders`,
-   `blockly-ts-target.js`) render a `"reference"` part exactly like a
-   `field_input`, defaulted to `target_<feature>` placeholder text so the
-   block is never blank before the user edits it.
-3. **`blockly-ts-target.js`**'s generator output reads a `"reference"`
-   field back with `block.getFieldValue(...)`, the same call used for plain
-   `"field"` (ID/INT) inputs, and splices the typed text straight into the
-   reconstructed DSL source. This is what makes it round-trip losslessly:
-   whatever name the user types is exactly what ends up next to `assignee`
-   in the generated code, with no extra lookup or validation layer needed.
+   rule (`terminal.type?.ref?.name`, i.e. `"Member"` for `assignee`). It
+   also exposes `findNameField(rule)` / `computeNameFields(irRules)`: since
+   nothing in a Langium grammar explicitly marks "this feature is the
+   element's name", these use the convention every example grammar here
+   already follows — a rule's first plain `feature=ID` text field (`name`,
+   `title`, ...) is treated as its declared name.
+2. **`block-json-generator.js`**'s `argBuilders.reference` looks up the
+   *target* rule's name field in that map and, if one exists, emits
+   `{ "type": "field_reference", "referencesType": "<targetRule>",
+   "nameField": "<its name arg>" }` instead of a plain `field_input`. If
+   the target rule has no text field to scan for (e.g. it's built purely
+   from keywords/numbers), there's nothing to build a dropdown from, so it
+   falls back to the old plain-text `field_input` — the pipeline never
+   crashes, it just degrades to typed text for that one case.
+3. **`blockly_app/src/reference-field.ts`** — a **static, hand-maintained**
+   file (like `index.html`; unlike `blocks.ts`/`generator.ts`/`main.ts`,
+   it is *not* overwritten by `parse.js`) — defines `FieldReference`, a
+   `Blockly.FieldDropdown` subclass that overrides `getOptions()` to scan
+   `workspace.getAllBlocks()` for every block whose type matches
+   `referencesType`, read each one's `nameField`, and return the
+   deduplicated, sorted set of currently-declared names as the dropdown's
+   options. It's registered once via `Blockly.fieldRegistry.register(...)`
+   so any block JSON with `"type": "field_reference"` resolves to it.
+   `generateBlocksTs` (`blockly-ts-target.js`) adds
+   `import './reference-field';` to every generated `blocks.ts` purely for
+   this registration side effect.
+4. **`blockly-ts-target.js`**'s generator output still reads a `"reference"`
+   field back with `block.getFieldValue(...)` — the exact same call used
+   for plain `"field"` inputs, since `FieldReference` (like every
+   `FieldDropdown`) stores its current value as a plain string. This is
+   what keeps the code generator itself unaware of the switch from
+   free text to a live dropdown: whichever name the user *picked* is
+   spliced straight into the reconstructed DSL source, unchanged.
 
-In short: a cross-reference is treated as "just another identifier token" at
-the Blockly layer, matching how lightweight the construct already is in the
-DSL's own grammar. The trade-off is that Blockly can't verify the typed name
-actually matches an existing block — that's the DSL/consumer's job, same as
-it would be if you hand-wrote the `.langium` source directly.
+**Trade-offs, by design** (see `reference-field.ts`'s doc comment for the
+authoritative list):
+- Only rules with a plain `feature=ID` name field are scannable; others
+  fall back to free text.
+- **No scoping** — every block of the target type anywhere on the
+  workspace is offered, regardless of where the referencing block sits.
+  Langium's own cross-references can be scope-restricted; this
+  implementation treats every declared name as globally visible.
+- If the block that owns the currently-selected name gets renamed or
+  deleted, the field's stored value just stops matching a live option;
+  Blockly silently falls back to the first available option next time the
+  dropdown opens. Nothing actively flags or repairs a now-dangling
+  reference.
+
 
 ### `generate_blockly/src/blockly-ts-target.js` — IR → the actual output files
 
@@ -312,7 +348,12 @@ at the end of this section). It exports three functions:
   was added. Rules that aren't a `+=` target at all get `null`/`null`.
   `"reference"` (cross-reference) parts never get a `check`, since — unlike
   `"value"` parts — they aren't a socket another block plugs into; see
-  "How cross-references work" above.
+  "How cross-references work" above. This function also computes
+  `nameFields` (`ir-builder.js#computeNameFields`) once per run and threads
+  it through to `argBuilders.reference`, and prepends
+  `import './reference-field';` to the emitted source so the custom
+  `field_reference` field (used by any resolved cross-reference dropdown)
+  is registered before Blockly renders anything.
 - **`generateGeneratorTs(irRules)`** → contents of `generator.ts`. For each
   rule, emits a `generator.forBlock['<ruletype>'] = function (block) {...}`
   that reads each field/value/statement/reference input back out (via
@@ -323,10 +364,13 @@ at the end of this section). It exports three functions:
   reconstructs the DSL's own text, not some other target language. `"field"`,
   `"dropdown"`, and `"reference"` parts are all read back with the same
   `block.getFieldValue(...)` call, since they're all backed by a single
-  Blockly field. If you want a block to actually *compile to something
-  else* (the way the hand-written `rbac_*` blocks referenced in the code
-  comments apparently do), you edit the generated function by hand
-  afterwards.
+  Blockly field — this holds whether a `"reference"` part rendered as the
+  live `field_reference` dropdown or fell back to plain `field_input`; the
+  generator code is identical either way, it just reads back whichever
+  name the user picked or typed. If you want a block to actually *compile
+  to something else* (the way the hand-written `rbac_*` blocks referenced
+  in the code comments apparently do), you edit the generated function by
+  hand afterwards.
 - **`generateMainTs(irRules)`** → contents of `main.ts`. Wires up
   `defineBlocks()`, injects the Blockly workspace into `#blocklyDiv` with a
   flyout toolbox listing one block per rule, and adds a change listener
@@ -409,7 +453,7 @@ allows only:
 | `Assignment` (`feature=`, `feature+=`) | ✅ |
 | `Keyword` (literal text) | ✅ |
 | `RuleCall` (reference to another rule) | ✅ |
-| `CrossReference` (`feature=[TargetRule:TERMINAL]`) | ✅ rendered as a plain text field holding the target's name — see "How cross-references work" above |
+| `CrossReference` (`feature=[TargetRule:TERMINAL]`) | ✅ rendered as a live dropdown (`field_reference`) scoped to the target rule's currently-declared names, falling back to a plain text field when the target rule has no name to scan for — see "How cross-references work" above |
 | Cardinality `?`, `*`, `+`, none | ✅ |
 | `UnorderedGroup` | ❌ not yet — flagged by the validator, hooks exist in `ast-utils.js` |
 | `Action` | ❌ not referenced by the validator's allowed-types set |
@@ -421,9 +465,11 @@ throws an `Error` listing every offending location — nothing is generated.
 `ID`-typed and `INT`-typed features become Blockly `field_input` /
 `field_number` inputs; any other rule reference becomes a plug-in
 `input_value` socket; a cross-reference (`feature=[TargetRule:TERMINAL]`)
-becomes a plain `field_input` holding the referenced element's name as
-typed text (no socket/"check" type, since nothing is actually plugged in —
-see "How cross-references work" above); `feature+=X` becomes a stacking
+becomes a live-scanned `field_reference` dropdown listing the target
+rule's currently-declared names (or a plain `field_input` fallback if that
+rule has no name field to scan for) — no socket/"check" type either way,
+since nothing is actually plugged in, just named — see "How
+cross-references work" above; `feature+=X` becomes a stacking
 `input_statement` socket, and `X`'s own block gets self-typed
 `previousStatement`/`nextStatement` so multiple instances chain together.
 When several `+=` branches are merged via alternatives (`(a+=A | b+=B)*`),
@@ -433,10 +479,11 @@ above.
 
 > `generate_blockly/input/invalid.langium`'s `Task` rule uses
 > `assignee=[Member:ID]`, a cross-reference — this now parses and generates
-> a block successfully, since cross-references are part of the supported
-> subset. That file's name/warning value now comes only from its other
-> construct(s); check the validator's error output for the current file to
-> see exactly what (if anything) it still rejects.
+> a block successfully, with `assignee` rendered as a live dropdown of
+> every declared `Member`'s name, since cross-references are part of the
+> supported subset. That file's name/warning value now comes only from its
+> other construct(s); check the validator's error output for the current
+> file to see exactly what (if anything) it still rejects.
 
 ---
 
@@ -457,9 +504,19 @@ places:
    `partTemplates` registry so the JSON/codegen output knows how to render it.
 
 The cross-reference feature (`CrossReference` → `"reference"` IRPart) is a
-worked example of exactly this three-step extension — see the diffs in
-`validator.js`, `ir-builder.js`, `block-json-generator.js`, and
-`blockly-ts-target.js`, plus the "How cross-references work" section above.
+worked example of exactly this three-step extension, taken a step further:
+after the initial free-text version, it was upgraded to a live, workspace-
+scanning dropdown without changing the IR shape at all — only
+`block-json-generator.js`'s `reference` builder, `blockly-ts-target.js`'s
+plumbing of the new `nameFields` map, and a brand-new *static* file,
+`blockly_app/src/reference-field.ts`, changed. See the diffs across those
+files plus `ir-builder.js`'s `computeNameFields`, and the "How
+cross-references work" section above for the full walkthrough. This is
+also the pattern to follow for a genuinely new **custom field** (as
+opposed to a new grammar construct): add a hand-maintained field module
+under `blockly_app/src/`, have the relevant IR-part's `argBuilders` entry
+emit its `"type"`, and have `generateBlocksTs` import the module for its
+registration side effect.
 
 ---
 
