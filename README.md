@@ -67,7 +67,18 @@ with a new `.langium` file — it overwrites `blockly_app/src/blocks.ts`,
 ```
 generate_blockly/
   input/
-    grammar.langium       example grammar (AddressBook) used above
+    grammar.langium         example grammar (ProjectDSL) - project/module/task hierarchy;
+                             exercises a "value" (plug-in) block via Metadata
+    adress_book.langium      example grammar (AddressBook) - the "merged alternatives"
+                              example discussed below (Contact -> Phone | Address)
+    todo_list.langium         example grammar (Todo) - flat, single-level list of tasks
+    state_machine.langium      example grammar (StateMachine) - flat list of named states
+    recipe.langium              example grammar (Recipe) - the "cross-reference" example;
+                                 blocks.ts/generator.ts/main.ts as checked in were generated
+                                 from this file (see "The generated/consumed app" below)
+    invalid.langium               example grammar exercising a CrossReference
+                                   (`assignee=[Member:ID]`) - despite the filename, this
+                                   now parses/validates/generates successfully
   src/
     parse.js               CLI entry point / pipeline orchestrator
     grammar-loader.js       Step 1: parse .langium text -> Langium AST
@@ -91,10 +102,22 @@ blockly_app/
                               registration side effect)
     generator.ts              generated: generator.forBlock[...] functions
 
+tests/
+  validation/              "is the output correct?" - unit + integration tests per
+                            pipeline module, plus a full end-to-end round-trip test
+                            using a real headless Blockly.Workspace (see Testing below)
+  evaluation/               "does it work for every case, and how fast?" - a coverage
+                            test across every bundled/edge-case grammar, and a
+                            performance script that benchmarks each pipeline stage
+  helpers/                  shared test infrastructure (in-memory pipeline runner,
+                             TS-to-ESM compiler + headless Blockly loader)
+  fixtures/                 small hand-written .langium files for negative-path tests
+                            (a syntax error, an unsupported UnorderedGroup)
+
 package.json / package-lock.json  npm project + dependency lockfile (blockly, langium, vite, TS)
 tsconfig.json                     TS config, scoped to blockly_app/src
 vite.config.ts                    Vite root = blockly_app/
-.gitignore                        ignores node_modules
+.gitignore                        ignores node_modules and compiled test artifacts
 ```
 
 ---
@@ -230,7 +253,8 @@ appending `IRPart`s to a per-rule context. The interesting decisions:
      ...), one option per keyword.
   2. *All branches are list assignments to different features*
      (`phones+=Phone | addresses+=Address`) → **merged statement parts**.
-     This is the case the bundled `AddressBook` grammar uses
+     This is the case the bundled `AddressBook` grammar
+     (`generate_blockly/input/adress_book.langium`) uses
      (`(phones+=Phone | addresses+=Address)*`). Since the DSL only cares
      about the interleaved *order* entries appear in, not which grammar
      feature they were assigned to, all branches collapse into **one**
@@ -323,7 +347,7 @@ authoritative list):
 - If the block that owns the currently-selected name gets renamed or
   deleted, the field's stored value just stops matching a live option;
   Blockly silently falls back to the first available option next time the
-  dropdown opens. Nothing actively flags or repairs a now-dangling
+  dropdown opens. Nothing actively repairs or flags a now-dangling
   reference.
 
 
@@ -414,21 +438,25 @@ instead of the `blockly_app/` scaffold in this repo.
   up by anything generated). Loads `./src/main.ts` as a module script.
 - **`src/main.ts`**, **`src/blocks.ts`**, **`src/generator.ts`** — these
   three files are **overwritten every time you run `parse.js`**. The copies
-  currently checked in correspond to the bundled example grammar
-  (`generate_blockly/input/grammar.langium`, an `AddressBook` grammar with
-  `Contact` → `Phone`/`Address`) — i.e. they're the *output* of already
-  having run:
+  currently checked in correspond to the bundled `recipe.langium` grammar
+  (`Cookbook` → `Ingredient`*/`Step`+) — i.e. they're the *output* of
+  already having run:
   ```bash
-  node generate_blockly/src/parse.js generate_blockly/input/grammar.langium
+  node generate_blockly/src/parse.js generate_blockly/input/recipe.langium
   ```
-  If you look at `blocks.ts`/`generator.ts` you can see the pattern described
-  above concretely: `phone` and `address` both got
-  `previousStatement`/`nextStatement: "address_or_phone"` because `Contact`
-  does `(phones+=Phone | addresses+=Address)*`, merging both into one
-  shared statement input (see "merged statement parts" above); `addressbook`
-  and `contact` did not, since `AddressBook`'s `contacts+=Contact` only
-  ever targets `Contact` alone, so its check type reduces to plain
-  `"contact"`.
+  If you look at `blocks.ts`/`generator.ts` you can see the
+  cross-reference feature described above concretely: `step`'s `INGREDIENT`
+  arg is a `field_reference` (`referencesType: "ingredient"`,
+  `nameField: "NAME"`) rather than a plain text field, because `Step`'s
+  `ingredient=[Ingredient]` is a cross-reference, and `Ingredient` has a
+  plain `feature=ID` name field (`name`) to scan for. `cookbook` is the
+  entry rule and isn't itself stackable (`previousStatement`/
+  `nextStatement: null`); `ingredient` and `step` each reduce to their own
+  lowercase check type (`"ingredient"` / `"step"`) since each is only ever
+  `+=`-repeated on its own, not merged with another rule via alternatives
+  the way `adress_book.langium`'s `Phone`/`Address` are (see "merged
+  statement parts" above, and `tests/validation/blockly-ts-target.test.js`
+  for a check-type test against that grammar specifically).
 
 Since `generator.ts` in this snapshot imports `javascriptGenerator` from
 `'blockly/javascript'` and re-exports it as `generator`, `blockly_app`
@@ -520,7 +548,131 @@ registration side effect.
 
 ---
 
-## Dependencies
+## Testing
+
+The `tests/` directory has two categories, matching two different questions:
+
+- **`tests/validation/`** — *is the output correct?* Unit tests for each
+  pipeline module (`grammar-loader.js`, `validator.js`, `ir-builder.js`,
+  `block-json-generator.js`, `blockly-ts-target.js`), plus one end-to-end
+  round-trip test that goes all the way from a `.langium` file to
+  reconstructed DSL text.
+- **`tests/evaluation/`** — *does it work for every case, and what does it
+  cost?* A coverage test that runs the whole pipeline against every
+  bundled/edge-case grammar and checks it produces the expected outcome
+  (success or rejection), plus a performance script that benchmarks each
+  pipeline stage, including how it scales as a grammar grows.
+
+Run them with:
+
+```bash
+npm test          # validation only (node:test, fast)
+npm run test:eval  # evaluation: coverage test (node:test)
+npm run test:perf   # evaluation: performance report (plain script, prints a table)
+npm run test:all     # all three, in order
+```
+
+No test framework dependency was added — everything runs on Node's
+built-in `node:test` + `node:assert/strict` (Node 20.19+ is already
+required by `vite`/`langium`, see `package.json`).
+
+### `tests/validation/` — is the output correct?
+
+- **`grammar-loader.test.js`** — confirms `loadGrammar` accepts every
+  bundled grammar and *actually rejects* a grammar with a real syntax or
+  linking error (see "Bugs found while building this suite" below - this
+  used to silently pass).
+- **`validator.test.js`** — confirms every bundled grammar validates, that
+  an unsupported construct (`UnorderedGroup`, i.e. Langium's `&` operator)
+  is rejected with a message naming both the construct and the rule, that
+  multiple violations across different rules are *all* reported (not just
+  the first), and that `options.allowedTypes` can relax the check.
+- **`ir-builder.test.js`** — checks each documented `IRPart.kind` mapping
+  (`field`, `dropdown`, `statement`, `reference`, `value`) against real
+  parsed grammars, plus the "merged alternatives" collapse
+  (`(a+=A | b+=B)*` → one shared statement part), the anonymous-dropdown
+  and mixed-alternatives-fallback paths, and `findNameField`/
+  `computeNameFields`.
+- **`block-json-generator.test.js`** — checks the standalone Blockly-JSON
+  generator's `argBuilders` registry, including both the "target rule has
+  a name field" and "target rule has no name field" branches of the
+  cross-reference builder.
+- **`blockly-ts-target.test.js`** — checks the trickier parts of the real
+  generator `parse.js` uses: the `_or_`-joined shared "check" type for
+  merged alternatives, telling a genuine value/output block apart from a
+  rule that's merely `+=`-repeated elsewhere, upper-snake-casing of arg
+  names (and of a `field_reference`'s `nameField` to match), the
+  `generateGeneratorTs` function bodies (value blocks return
+  `[code, ORDER_ATOMIC]`; stackable rules append a trailing `'\n'`), and
+  the entry/non-entry toolbox split in `generateMainTs`.
+- **`roundtrip.test.js`** — the deepest check. It compiles the *actual*
+  generated `blocks.ts`/`generator.ts` TypeScript to JS on the fly
+  (`typescript.transpileModule`) and loads them as real ES modules backed
+  by the real `blockly` npm package, using a real (headless)
+  `Blockly.Workspace` - Blockly's model layer (blocks, connections,
+  fields) has no DOM dependency, only its SVG renderer does, so this needs
+  no browser. It builds blocks by hand the way a person would drag them
+  in the UI (`workspace.newBlock(...)`, `setFieldValue(...)`,
+  `.connection.connect(...)`), then asserts `generator.workspaceToCode(...)`
+  reconstructs the exact expected DSL text - covering a multi-item stack,
+  an empty statement input, the merged-alternatives interleaving in
+  `adress_book.langium`, a cross-reference field in `recipe.langium`, and
+  a real value/output block in `grammar.langium`.
+
+### `tests/evaluation/` — does it work for everything, and how fast?
+
+- **`coverage.test.js`** — runs every bundled example grammar (and the
+  `tests/fixtures/` negative cases) through the full pipeline and checks
+  each produces the outcome it's supposed to (`pipeline-succeeds`,
+  `fails-at-load`, or `fails-at-validate`), printing a summary table.
+  Also asserts every documented `IRPart.kind` is exercised by at least one
+  bundled grammar, so a future change that stopped covering one of them
+  (e.g. nothing left using cross-references) would fail loudly instead of
+  silently losing coverage.
+- **`performance.js`** — times each of the four pipeline stages
+  (load/validate/buildIR/generate) for every bundled grammar, and for
+  synthetic grammars (`synthetic-grammar.js`) with 1 to 200 independently
+  generated rules, to show how each stage scales. Prints tables plus an
+  explicit 1→200-rule scaling ratio per stage. The headline finding:
+  `buildIR`/`validate`/`generate` are all sub-millisecond even at 200
+  rules and scale roughly linearly, but `loadGrammar` dominates total time
+  (tens to ~150ms) because it calls `createLangiumGrammarServices()` fresh
+  on *every* invocation - fine for the one-shot CLI usage this pipeline is
+  built for, but worth caching/reusing if the pipeline is ever driven from
+  a long-running process instead.
+
+### Bugs found while building this suite
+
+Writing tests against real (not mocked) behavior surfaced three
+pre-existing bugs, all fixed as part of adding this suite:
+
+1. **`loadGrammar` never actually checked for errors.** It called
+   `DocumentBuilder.build([document])` without `{ validation: true }`, so
+   `document.diagnostics` was always `undefined`/empty and the "throw on
+   errors" check never fired - a `.langium` file with a real syntax error
+   (e.g. an unterminated rule) would silently produce a corrupted-looking
+   but "successful" Grammar AST. Fixed by requesting validation and
+   filtering to `severity === Error` (so non-fatal diagnostics like "this
+   rule is declared but never referenced" - a Hint - don't block an
+   otherwise-valid grammar). See `tests/validation/grammar-loader.test.js`.
+2. Turning that check on for real revealed that **`terminal WS hidden: ...`
+   is not valid syntax** in the Langium version this project depends on
+   (`^4.1.0`, resolving to `4.3.1`) - only `hidden terminal WS: ...` is.
+   `todo_list.langium`, `state_machine.langium`, `recipe.langium`, and
+   `grammar.langium` all used the invalid form and have been corrected.
+3. **`adress_book.langium` declared `grammar AddressBook` and
+   `entry AddressBook: ...`** - Langium rejects a rule sharing its
+   grammar's own name. Renamed the grammar declaration to
+   `AddressBookGrammar` (the entry rule keeps its original name,
+   `AddressBook`).
+
+All three were only reachable because bug #1 was masking them - the
+pipeline "worked" in the sense of producing files, but was silently
+accepting grammars it should have rejected. `npm test` now exercises this
+path directly (`grammar-loader.test.js`'s "rejects a grammar with a
+linking error" case) so a regression here would fail loudly.
+
+
 
 From `package.json`:
 
@@ -533,6 +685,10 @@ npm scripts:
 npm run dev       # vite dev server for blockly_app/
 npm run build      # tsc (type-check blockly_app/src) then vite build
 npm run preview     # preview the production build
+npm test              # validation test suite (see Testing above)
+npm run test:eval      # evaluation: coverage test
+npm run test:perf       # evaluation: performance report
+npm run test:all         # all of the above, in order
 ```
 
 `tsconfig.json` only type-checks `blockly_app/src` — the `generate_blockly/`
