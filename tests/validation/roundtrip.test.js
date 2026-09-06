@@ -176,9 +176,12 @@ test('round trip: grammar.langium\'s Metadata plugs into Project as a real value
 
         const code = generator.workspaceToCode(workspace);
 
+        // "Metadata: %1" is joined with the surrounding message pieces by
+        // a plain space (not a newline) because a "value" item is never
+        // treated as multiline - only "statement" items force a '\n'
+        // separator (see the `sep` logic in ruleToGeneratorFunction).
         assert.equal(code, [
-            'project demo {',
-            '  metadata { 1 public }',
+            'project demo { metadata { 1 public }',
             '',
             '',
             '',

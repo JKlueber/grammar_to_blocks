@@ -1,4 +1,4 @@
-grammar AddressBook
+grammar AddressBookGrammar
 
 hidden terminal WS: /\s+/;
 terminal ID: /[_a-zA-Z][\w_]*/;

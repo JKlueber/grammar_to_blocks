@@ -14,4 +14,4 @@ Step:
 
 terminal ID: /[a-zA-Z_][a-zA-Z0-9_]*/;
 terminal INT returns number: /[0-9]+/;
-terminal WS hidden: /\s+/;
+hidden terminal WS: /\s+/;
