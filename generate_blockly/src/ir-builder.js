@@ -41,6 +41,7 @@ const nodeHandlers = {
             visit(e, ctx);
     },
 
+<<<<<<< Updated upstream
     /**
      * A grammar `Alternatives` node (`a | b | c`) with no assignment in
      * front of it is handled as one of three distinct shapes, checked in
@@ -69,6 +70,13 @@ const nodeHandlers = {
      *      produces *something*, and push a warning so the loss is
      *      visible instead of silent.
      */
+=======
+    UnorderedGroup(node, ctx) {
+    for (const e of node.elements)
+        visit(e, ctx);
+    },
+
+>>>>>>> Stashed changes
     Alternatives(node, ctx) {
         const allKeywords = node.elements.every(e => e.$type === "Keyword");
 

@@ -16,6 +16,7 @@ export const DEFAULT_ALLOWED_TYPES = new Set([
     'Grammar',
     'ParserRule',
     'Group',
+    'UnorderedGroup',
     'Alternatives',
     'Assignment',
     'Keyword',
