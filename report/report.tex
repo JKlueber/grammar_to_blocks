@@ -1,7 +1,3 @@
-% This is samplepaper.tex, a sample chapter demonstrating the
-% LLNCS macro package for Springer Computer Science proceedings;
-% Version 2.20 of 2017/10/04
-%
 \documentclass[runningheads]{llncs}
 %
 \usepackage{graphicx}
@@ -15,182 +11,212 @@
 \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
 
 \lstdefinestyle{mystyle}{
-    backgroundcolor=\color{backcolour},   
+    backgroundcolor=\color{backcolour},
     commentstyle=\color{codegreen},
     keywordstyle=\color{magenta},
     numberstyle=\tiny\color{codegray},
     stringstyle=\color{codepurple},
     basicstyle=\ttfamily\footnotesize,
-    breakatwhitespace=false,         
-    breaklines=true,                 
-    captionpos=b,                    
-    keepspaces=true,                 
-    numbers=left,                    
-    numbersep=5pt,                  
-    showspaces=false,                
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
     showstringspaces=false,
-    showtabs=false,                  
+    showtabs=false,
     tabsize=2
 }
 
 \lstset{style=mystyle}
-% Used for displaying a sample figure. If possible, figure files should
-% be included in EPS format.
-%
 % If you use the hyperref package, please uncomment the following line
 % to display URLs in blue roman font according to Springer's eBook style:
 % \renewcommand\UrlFont{\color{blue}\rmfamily}
 
 \begin{document}
 %
-\title{Semantic Comparison of LTL Specifications\\ with NuSMV}
-\subtitle{\scriptsize Formal Methods for Software Engineering WS22/23}
+\title{From Langium Grammars to Blockly Editors\\ A Restricted-Subset Code Generation Pipeline}
+\titlerunning{From Langium Grammars to Blockly Editors}
+\subtitle{\scriptsize Generative Software Engineering}
 %
-%\titlerunning{Abbreviated paper title}
-% If the paper title is too long for the running head, you can set
-% an abbreviated paper title here
-%
-\author{First Author \and Second Author}
+\author{Md Mehedi Hasan \and Julian Klüber}
 \institute{Bauhaus-Universität Weimar}
 %
-\maketitle              % typeset the header of the contribution
+\maketitle
 %
 \begin{abstract}
-Model checking is an automatic technique for verifying correctness properties of safety-critical reactive systems. LTL is a popular logic for the specification of correctness properties. NuSMV is a classic model checking tool supporting the analysis of transition systems and LTL specifications.
+Textual grammars are an efficient way to define domain-specific languages (DSLs), but they require users to learn concrete syntax before they can write anything valid. Visual, block-based editors such as Google's Blockly lower this barrier by letting users assemble programs from interlocking blocks instead of typing text, at the cost of someone having to hand-build a block definition and code generator for every DSL.
 
-We develop a methodology and tools for semantically comparing NuSMV specifications. The input of our tool are two LTL specification and a model. Our tool checks refinement, equivalence, or incomparability of the provided specifications.
+We present a pipeline that closes this gap automatically: given a \href{https://langium.org/}{Langium} grammar restricted to a well-defined subset of constructs, our tool validates it, builds a small intermediate representation (IR) capturing what each grammar rule \emph{means} as a user-facing input, and emits a ready-to-run Blockly block editor — block definitions, a code generator that reconstructs the DSL's own concrete syntax, and the wiring to run it in a browser. We describe the pipeline's four stages, two extensibility case studies we carried out ourselves (cross-references rendered as a live, workspace-scanning dropdown field, and Langium's unordered-group operator \texttt{\&}), and validate the implementation against a 45-test unit/integration suite, a 12-test coverage suite, and a performance benchmark across synthetic grammars of up to 200 rules.
 \end{abstract}
 
 \section{Introduction}
 
 \subsection{Background}
-Model checking is an automatic technique for verifying correctness properties of safety-critical reactive systems~\cite{ClarkeS01}. Examples include \ldots
+Domain-specific languages let subject-matter experts express solutions in vocabulary close to their problem, rather than in a general-purpose programming language. Building a DSL from a textual grammar is well supported by modern language workbenches: \href{https://langium.org/}{Langium}~\cite{langium} is an open-source TypeScript framework for implementing DSLs, generating a parser, an abstract syntax tree (AST), and a Language Server Protocol implementation directly from an \texttt{.langium} grammar file.
 
-LTL is a popular logic for the specification of correctness properties. The main operators of LTL are \ldots
-
-NuSMV\footnote{Project page of NuSMV at \url{https://nusmv.fbk.eu/}} is a classic model checking tool supporting the analysis of transition systems and LTL specifications. It is used either for the direct analysis of models and specifications or programmatically by other tools. e.g., Alloy\footnote{For Alloy 6, see \url{https://alloytools.org/}}.
+Textual syntax is not the only way to interact with a DSL, however. Block-based visual programming environments, popularised by Scratch and, in library form, by Google's \href{https://developers.google.com/blockly}{Blockly}~\cite{blockly}, let users construct programs by dragging and connecting graphical blocks. Blocks encode syntax structurally (a block that plugs into a statement socket \emph{is} syntactically valid there by construction), which removes an entire class of errors a textual editor would otherwise have to catch after the fact, and makes DSLs approachable to users who are not yet comfortable typing code by hand.
 
 \subsection{Motivation}
+Building a Blockly editor for a DSL by hand means writing one block definition and one code-generator function per grammar rule, and keeping both in sync with the grammar as it evolves — tedious, repetitive, and easy to let drift out of sync. Since a Langium grammar already declares, precisely, what each rule's concrete syntax looks like (its sequence of keywords, assigned features, and sub-rule references), most of the information needed to derive a corresponding block definition is already present in the grammar itself.
 
-When developing safety critical or high-assurance systems LTL specifications become artifacts of the software engineering life-cycle. The specifications have to be written, maintained, updated, refactored etc. as the software system is created and evolved. Writing and reading LTL specifications is a non-trivial task. To date there are no tools that support the semantic comparison of LTL specifications as a system evolves. We aim to develop a methodology and tools for semantically comparing NuSMV specifications to support software engineers writing and maintaining LTL specifications.
+This motivates the project's central question: for a well-defined, restricted subset of Langium grammars, can a block editor — definitions, generator, and workspace — be derived automatically, rather than written by hand for every DSL?
 
 \section{Problem Statement}
-The input of our tool are a model $\mathcal{M}$ and two LTL properties $\phi$ and $\psi$. 
-
-The possible outputs of a semantic comparison are:
+Given a Langium grammar $G$ whose parser rules use only constructs from a supported subset $S$ (Section~\ref{sec:limitations} defines $S$ precisely), the pipeline must produce:
 \begin{description}
-\item[$\phi$ refines $\psi$] iff $\forall \pi \in \mathcal{M}. (s \models \phi) \rightarrow (s \models \psi)$ denoted $\phi \prec \psi$
-\item[$\psi$ refines $\phi$] iff $\forall \pi \in \mathcal{M}. (s \models \psi) \rightarrow (s \models \phi)$ denoted $\psi \prec \phi$
-\item[equivalent] iff $\phi \prec \psi$ and $\psi \prec \phi$ denoted $\phi \equiv \psi$
-\item[incomparable] otherwise
+\item[block definitions] one Blockly block type per parser rule in $G$, whose input fields/sockets correspond to that rule's assigned features;
+\item[a code generator] a function per block type that reconstructs a syntactically valid instance of $G$'s concrete syntax from the values a user has entered into that block's fields and connected inputs;
+\item[a runnable editor] a Blockly workspace, pre-populated with a toolbox containing every generated block, that re-renders the generated DSL text live as the user edits the workspace.
 \end{description}
-
-Optionally, we want the tool to ignore the model $\mathcal{M}$ and perform the semantic comparison for all possible models.
+If $G$ uses a construct outside $S$, the pipeline must reject it before generating anything, reporting every offending construct and the rule it occurs in — not merely the first one found.
 
 \section{Example \& Intuition}
-Consider the example model of a simple request answering system. The engineers initially formulated the LTL specification \texttt{eventuallyBusy} in lines 12-13 stating that incoming requests will eventually be worked on in state \texttt{busy}. After carefully checking the implementation the team wants to strengthen the specification to require that the \texttt{busy} state is reached immediately or in the next step (see lines 15-16).
+\label{sec:example}
+Consider the bundled \texttt{Recipe} grammar (Listing~\ref{lst:recipe-grammar}): a \texttt{Cookbook} names itself and contains zero-or-more \texttt{Ingredient}s followed by one-or-more \texttt{Step}s, and each \texttt{Step} names which previously declared \texttt{Ingredient} it uses via a Langium \emph{cross-reference} (\texttt{ingredient=[Ingredient]}) rather than nesting a new one.
 
+\begin{lstlisting}[caption=The bundled \texttt{recipe.langium} example grammar, label=lst:recipe-grammar]
+grammar Recipe
 
+entry Cookbook:
+    'recipe' name=ID '{'
+        ingredients+=Ingredient*
+        steps+=Step+
+    '}';
 
-\begin{lstlisting}[caption=NuSMV model example with two named LTL specifications to compare, label=lst:example]
-MODULE main
-VAR
-  request : boolean;
-  state   : {ready, busy};
-ASSIGN
-  init(state) := ready;
-  next(state) := case
-       state = ready & request : busy;
-       TRUE                    : {ready, busy};
-  esac;
+Ingredient:
+    'ingredient' name=ID amount=INT;
 
-LTLSPEC NAME eventuallyBusy :=
-  G(request -> F state = busy)
-
-LTLSPEC NAME nowOrNextBusy :=
-  G(request -> (state = busy | X state = busy))
+Step:
+    'step' number=INT action=('add' | 'mix' | 'cook' | 'serve')
+    ingredient=[Ingredient];
 \end{lstlisting}
 
-Our tool enables the team to check whether this change was indeed a refinement. Intuitively, we generate new LTL specifications checking the comparison via NuSMV. The checks for all properties are shown in Listing~\ref{lst:checks}. 
+Running \texttt{node generate\_blockly/src/parse.js generate\_blockly/input/recipe.langium} turns this into three blocks. The \texttt{Step} block's generated Blockly JSON (Listing~\ref{lst:recipe-json}) shows the interesting case: \texttt{ingredient=[Ingredient]} becomes a \texttt{field\_reference} — a custom dropdown field (Section~\ref{sec:crossref}) rather than a plain text box, since \texttt{Ingredient} declares a plain \texttt{name=ID} field the dropdown can scan for.
 
-\begin{lstlisting}[caption=Checks for the semantic comparison of LTL specs \texttt{eventuallyBusy} and \texttt{nowOrNextBusy}, label=lst:checks]
-LTLSPEC -- eventuallyBusy refines nowOrNextBusy
-  (G(request -> F state = busy)) -> 
-  (G(request -> (state = busy | X state = busy)))
-
-LTLSPEC -- nowOrNextBusy refines eventuallyBusy
-  (G(request -> (state = busy | X state = busy))) ->
-  (G(request -> F state = busy))
-\end{lstlisting}
-
-This translation takes \ldots
-
-\section{Implementation}
-We have written our tool in Java. No external libraries were used, but a binary of the NuSMV model checker is required (and provided as part of our code). Our implementation consists of 800 lines of code in 5 different classes. An overview of the classes is given below \ldots
-
-\subsection{Code Example}
-We provide and describe two code examples here.
-
-Some code is shown in Listing.~\ref{lst:code1}.
-
-\begin{lstlisting}[language=Java, caption=RegEx example from the web\\ \url{https://www.baeldung.com/regular-expressions-java}, label=lst:code1]
-@Test
-public void givenRegex_whenMatchesWithMultilineFlag_thenCorrect() {
-    int matches = runTest(
-      "dog$", "This is a dog" + System.getProperty("line.separator") 
-      + "this is a fox", Pattern.MULTILINE);
- 
-    assertTrue(matches > 0);
+\begin{lstlisting}[caption={Generated block JSON for the \texttt{Step} rule (excerpt)}, label=lst:recipe-json]
+{
+  "type": "step",
+  "message0": "step Number: %1 Action: %2 Ingredient: %3",
+  "args0": [
+    { "type": "field_number",   "name": "NUMBER" },
+    { "type": "field_dropdown", "name": "ACTION",
+      "options": [["add","add"],["mix","mix"],
+                  ["cook","cook"],["serve","serve"]] },
+    { "type": "field_reference", "name": "INGREDIENT",
+      "referencesType": "ingredient", "nameField": "NAME" }
+  ],
+  "previousStatement": "step", "nextStatement": "step"
 }
 \end{lstlisting}
 
-\subsection{Tool usage}
-Our tool requires Java 11 or later to run. We have included the binaries of NuSMV for Windows 64Bit (x86) and Linux 64Bit (x86). For other platforms, compile and provide the binaries in the subfolder \texttt{./nusmv/bin}.
+Assembling one \texttt{cookbook} block, one \texttt{ingredient} block named \texttt{flour}, and one \texttt{step} block that picks \texttt{flour} from its (live-scanned) dropdown, the generator reconstructs the following DSL text, character-for-character valid \texttt{Recipe} syntax:
+\begin{lstlisting}[caption=Reconstructed DSL text for the workspace described above, label=lst:recipe-output]
+recipe pancakes {
+  ingredient flour 200
+  step 1 mix flour
+}
+\end{lstlisting}
+This round-trip — grammar in, working editor out, edited workspace back to valid concrete syntax — is exactly what every test in Section~\ref{sec:validation} exercises for the pipeline's other bundled grammars.
 
-We implemented a commandline interface with the following options:
+\section{Implementation}
 
-\begin{itemize}
-    \item \texttt{\$filename} (mandatory) the name of the file
-    \item \texttt{\$spec1} (mandatory) the name of the first LTLSPEC to check
-    \item \texttt{\$spec2} (mandatory) the name of the second LTLSPEC to check
-    \item \texttt{noModel} (optional) if present the model will be ignored
-    \item \texttt{showExample} (optional) if present the tool will generate counterexamples (for non-refinement, i.e., two if incomparable)
-\end{itemize}
+\subsection{Pipeline Architecture}
+The pipeline (\texttt{generate\_blockly/src/}) is organised as four sequential stages, each with a single, narrow responsibility:
+\begin{enumerate}
+\item \textbf{\texttt{grammar-loader.js}} parses the \texttt{.langium} file using Langium's own grammar services (\texttt{createLangiumGrammarServices}) and throws if the document has any error-severity diagnostic — a real syntax or linking error, not merely an unused-rule warning.
+\item \textbf{\texttt{validator.js}} walks every parser rule's definition tree and collects — rather than fails fast on — every AST node type or cardinality that falls outside the supported subset, so a user gets one complete report instead of fixing violations one at a time.
+\item \textbf{\texttt{ir-builder.js}} walks the (now validated) AST and produces an array of \texttt{RuleIR} objects: a rule name plus an ordered list of \texttt{IRPart}s, the pipeline's own grammar-agnostic vocabulary for "what does this piece of the rule mean as a block input."
+\item \textbf{\texttt{blockly-ts-target.js}} turns \texttt{RuleIR[]} into three TypeScript files — \texttt{blocks.ts} (block definitions), \texttt{generator.ts} (the \texttt{forBlock} functions that reconstruct DSL text), and \texttt{main.ts} (workspace + toolbox wiring) — which are written directly into \texttt{blockly\_app/src/}, ready for \texttt{npm run dev} to serve.
+\end{enumerate}
+Separating stage 3 (grammar semantics) from stage 4 (Blockly-specific code generation) behind the small \texttt{IRPart} vocabulary is what let us extend the pipeline (Sections~\ref{sec:crossref} and~\ref{sec:unordered}) by touching only one or two of the four stages at a time, rather than the whole codebase.
 
-An example execution for the file shown in Listing~\ref{lst:example} would look like this:
-$$\texttt{java -jar ltlcompare.jar arbiter.smv eventuallyBusy nowOrNextBusy}$$
+\subsection{The Intermediate Representation}
+Every \texttt{IRPart} carries a \texttt{kind} drawn from six possibilities, summarised in Listing~\ref{lst:ir-shape}. A \texttt{feature=ID}/\texttt{feature=INT} assignment becomes a \texttt{field} (a text or number input); \texttt{feature=SomeRule} becomes a \texttt{value} (a plug-in socket); \texttt{feature+=Rule} becomes a \texttt{statement} (a stacking socket, since Blockly's native idiom for repetition is stacking one block per list item); an all-keyword \texttt{Alternatives} becomes a \texttt{dropdown}; and \texttt{feature=[Rule:TERMINAL]} — a Langium cross-reference — becomes a \texttt{reference} (Section~\ref{sec:crossref}).
 
-The tool prints an output to the console. The output contains \ldots
+\begin{lstlisting}[caption={The \texttt{IRPart} shape (JSDoc typedef, abbreviated)}, label=lst:ir-shape]
+/**
+ * @typedef {Object} IRPart
+ * @property {"keyword"|"field"|"dropdown"|"value"
+ *           |"statement"|"reference"} kind
+ * @property {string}   [feature]     - grammar feature name
+ * @property {string}   [refRuleName] - referenced rule, if any
+ * @property {boolean}  [optional]    - cardinality "?"
+ * @property {boolean}  [repeatable]  - cardinality "*"/"+"/"+="
+ */
+\end{lstlisting}
 
-\subsection{Limitations of the Implementation}
-Our implementation uses regular expressions to find \texttt{LTLSPEC} blocks within a NuSMV file. In cases where the LTL formula is not terminated with a semicolon or where it contains comments that include a semicolon our approach might not capture the correct formulas. Right now there is no easy mitigation of this limitation other than making sure about the above. An alternative implementation should have been based on a NuSMV parser instead of using regular expressions.
+A dedicated \texttt{nodeHandlers} registry (keyed by Langium AST \texttt{\$type}) dispatches the traversal, so supporting a new grammar construct means adding one handler, not editing existing ones — the pattern both of our own extensions below follow.
 
-When checking semantic properties of specifications without considering the model our implementation attempts to comment out \texttt{ASSIGN}, \texttt{TRANS}, \texttt{INIT}, and \texttt{INVAR} blocks. Again we identify these blocks using regular expressions, which is prone to the same errors mentioned above. We have decided to follow this approach rather than extracting the variables as the NuSMV files might declare and compose multiple modules whose structure must be preserved. An alternative implementation should have been based on a NuSMV parser instead of using regular expressions.
+\subsection{Cross-References as a Live-Scanning Dropdown}
+\label{sec:crossref}
+A Langium cross-reference (\texttt{assignee=[Member:ID]}) means "point at an already-declared \texttt{Member} by name," as opposed to \texttt{assignee=Member}, which nests a brand-new one. Blockly has no built-in widget for this — a plain \texttt{field\_dropdown}'s option list is fixed at block-definition time, while a cross-reference's valid targets change as the user edits the workspace. We therefore ship \texttt{FieldReference}, a hand-written \texttt{Blockly.FieldDropdown} subclass (\texttt{blockly\_app/src/reference-field.ts}, the one file in \texttt{blockly\_app/src/} \emph{not} regenerated by the pipeline) that overrides \texttt{getOptions()} to scan \texttt{workspace.getAllBlocks()} for every block of the referenced type and read each one's declared name, live, every time the dropdown opens.
+
+Wiring this up touches four files end to end: \texttt{ir-builder.js} records which rule a reference targets (and, via \texttt{computeNameFields}, which feature on \emph{that} rule counts as its "name" — by convention, its first plain \texttt{feature=ID} field); \texttt{block-json-generator.js}'s \texttt{argBuilders.reference} emits \texttt{\{"type": "field\_reference", "referencesType": ..., "nameField": ...\}}, falling back to a plain text field when the target rule has no name field to scan; \texttt{reference-field.ts} implements the field itself; and the generator in \texttt{blockly-ts-target.js} reads it back with the same \texttt{block.getFieldValue(...)} call used for any other field, unaware that the value came from a live dropdown rather than typed text. This trade-off is deliberate and documented: every declared name of the target type is offered regardless of where the referencing block sits on the workspace (Langium's own cross-references support finer-grained scoping we do not model), and a renamed or deleted target simply stops matching, falling back silently to the first available option.
+
+\subsection{Extending the Pipeline: Unordered Groups}
+\label{sec:unordered}
+As a second, independent extensibility case study, we added support for Langium's \texttt{UnorderedGroup} construct (\texttt{a \& b \& c}: all of these, in any order), following the same three-step pattern the codebase already documents for extending it. First, \texttt{validator.js} adds \texttt{'UnorderedGroup'} to its allowed-type set and walks its \texttt{.elements} the same way it already walks a \texttt{Group}'s. Second, \texttt{ir-builder.js} gains a new \texttt{nodeHandlers.UnorderedGroup} entry (Listing~\ref{lst:unordered-handler}) whose body is, deliberately, an exact copy of the existing \texttt{Group} handler.
+
+\begin{lstlisting}[caption={The \texttt{UnorderedGroup} IR handler}, label=lst:unordered-handler]
+UnorderedGroup(node, ctx) {
+    for (const e of node.elements)
+        visit(e, ctx);
+},
+\end{lstlisting}
+
+The design rationale is what makes this extension worth reporting rather than a one-line diff: Blockly's block UI is a static form — a block's fields render in one fixed order, decided once at block-definition time — so there is no way to preserve \texttt{\&}'s "any order is fine" flexibility inside a single block. Committing to one fixed order (the grammar's own declaration order) is still always \emph{correct}, however: since the grammar rule itself does not care what order its parts appear in, always emitting them in one particular order is trivially one of the orders the grammar accepts. What is lost is only the \emph{choice} a person typing the DSL by hand would have had, not the validity of what the block editor produces. Because no new \texttt{IRPart.kind} was introduced, stage~4 (\texttt{blockly-ts-target.js}) required no changes at all — the clearest demonstration that separating IR construction from code generation (Section 4.1) pays off when extending the pipeline.
+
+\subsection{Tool Usage}
+The pipeline is driven from the command line:
+\begin{lstlisting}[caption=Generating and running an editor for a grammar]
+npm install
+node generate_blockly/src/parse.js generate_blockly/input/recipe.langium
+npm run dev
+\end{lstlisting}
+The first command generates \texttt{blocks.ts}/\texttt{generator.ts}/\texttt{main.ts} into \texttt{blockly\_app/src/}, overwriting the previous grammar's output in place; the second serves the resulting Blockly workspace via Vite.
+
+\subsection{Limitations}
+\label{sec:limitations}
+The validator's supported subset $S$ is: \texttt{Group}, \texttt{UnorderedGroup}, \texttt{Alternatives}, \texttt{Assignment} (\texttt{=}/\texttt{+=}), \texttt{Keyword}, \texttt{RuleCall}, \texttt{CrossReference}, and cardinalities \texttt{?}/\texttt{*}/\texttt{+}/none. \texttt{Action} (Langium's tree-rewriting/type-inference syntax, e.g.\ \texttt{\{infer Type\}}) is the one construct explicitly identified, but not yet implemented, as the next candidate for extension. Mixed \texttt{Alternatives} (keywords mixed with rule calls, or list-assignments to more than one shape) fall back to visiting only the first branch, emitting a warning rather than failing outright, so the pipeline always produces \emph{something}. Cross-reference scoping and unordered-group ordering choice, discussed above, are both deliberate simplifications rather than oversights, each documented at the point in the code where the simplification is made.
 
 \section{Evaluation}
+
 \subsection{Validation}
-To ensure the correctness our implementation we have tested our prototype on many NuSMV files. We have done a semantic comparison of each LTL property $\psi$ against the special properties:
-\begin{itemize}
-    \item $\psi$: must yield equivalence
-    \item \texttt{TRUE}: must yield \texttt{$\psi$ refines TRUE}
-    \item \texttt{FALSE}: must yield \texttt{FALSE refines $\psi$}
-    \item \texttt{!$\psi$}: must yield \texttt{incomparable}    
-\end{itemize}
+\label{sec:validation}
+Correctness is checked by 45 tests across \texttt{tests/validation/}, run with Node's built-in test runner (no external test framework dependency): one file per pipeline module (\texttt{grammar-loader}, \texttt{validator}, \texttt{ir-builder}, \texttt{block-json-generator}, \texttt{blockly-ts-target}), plus \texttt{roundtrip.test.js}, which \emph{compiles} the generated \texttt{blocks.ts}/\texttt{generator.ts} to real ES modules, loads them against the real \texttt{blockly} npm package, builds an actual headless \texttt{Blockly.Workspace}, wires up blocks the way a person dragging them in the UI would, and asserts on the DSL text Blockly's own generator reconstructs — this is possible without a browser because Blockly's model (workspace, blocks, connections, fields) has no DOM dependency, only its SVG renderer does.
 
-These checks are automated in \texttt{AllPropCheckTest.java}. We have inspected all failures and concluded that these result only from $\psi$ being either trivially \texttt{FALSE} or trivially \texttt{TRUE}.
-
-We have further checked special cases where we manually designed pairs of specifications to have fixed comparison outcomes. These checks include 17 LTL specification pairs on 9 models and are automated in \texttt{SpecialCasesTest.java}.
+A separate 12-test suite in \texttt{tests/evaluation/} checks breadth rather than individual correctness: that every bundled example grammar (and negative fixture) produces the outcome documented for it — pipeline success, a load-time syntax/linking error, or a validate-time rejection — that every one of the six documented \texttt{IRPart.kind} values is exercised by at least one bundled grammar, and that every construct the supported-subset table names as unsupported (currently \texttt{Action}) is in fact rejected. All 45 validation tests and all 12 coverage tests pass on the current implementation, including the \texttt{UnorderedGroup} extension from Section~\ref{sec:unordered}.
 
 \subsection{Performance Cost}
+We benchmarked each pipeline stage against synthetic grammars of increasing size (1 to 200 rules, 7 timed repetitions after 2 warm-up runs, single laptop), summarised in Table~\ref{tab:perf}.
 
-We have analysed the performance cost of the semantic comparison. Our corpus of specifications consists of 30 NuSMV files obtained from public GitHub repositories\footnote{We have used the search query \url{https://github.com/search?l=\&q=module+ltlspec+extension\%3Asmv\&ref=advsearch\&type=Code}}. We have measured the times of the validation checks described above. All experiments were executed on a laptop computer with an i7 CPU at 2.4GHz.
+\begin{table}[h]
+\centering
+\caption{Median stage time (ms) vs.\ grammar size}
+\label{tab:perf}
+\begin{tabular}{r r r r r r}
+\hline
+Rules & Load & Validate & Build IR & Generate & Total \\
+\hline
+1   & 21.39 & 0.00 & 0.00 & 0.04 & 21.44 \\
+5   & 25.34 & 0.01 & 0.01 & 0.15 & 25.51 \\
+10  & 25.55 & 0.02 & 0.02 & 0.28 & 25.88 \\
+25  & 38.23 & 0.05 & 0.06 & 0.75 & 39.09 \\
+50  & 53.02 & 0.05 & 0.12 & 1.50 & 54.69 \\
+100 & 109.92 & 0.31 & 0.23 & 2.35 & 112.81 \\
+200 & 163.23 & 0.40 & 0.40 & 5.03 & 169.06 \\
+\hline
+\end{tabular}
+\end{table}
 
-We have computed the average analysis times as 900ms with maximum times at 10sec for specification \ldots.
-
-
+From 1 to 200 rules (a $200\times$ increase, if scaling were perfectly linear), measured time grows by $7.6\times$ for loading, $111.8\times$ for validation, $89.7\times$ for IR construction, and $126.8\times$ for code generation — i.e.\ validation, IR construction, and generation all scale sub-linearly with grammar size at this range, while \texttt{loadGrammar} is dominated by a largely size-independent fixed cost: it calls \texttt{createLangiumGrammarServices()} fresh on every invocation. This is immaterial for the pipeline's intended one-shot CLI usage, but is worth caching if the pipeline were ever driven from a long-running process (e.g.\ a watch mode) converting many grammars per process lifetime — a limitation we document in the code rather than treat as a surprise.
 
 \section{Discussion \& Conclusion}
-Eventually, we did a great job in this project and would like to do some extension of it in our MSc thesis.
+We implemented a four-stage pipeline that turns a restricted-subset Langium grammar into a working Blockly editor, validated it against a 45-test unit/integration suite and a 12-test breadth-coverage suite (all passing), and benchmarked it up to 200-rule synthetic grammars with sub-linear scaling on every stage but grammar loading. Beyond the base pipeline, we used two features — cross-references rendered as a live, workspace-scanning dropdown, and Langium's unordered-group operator — as concrete case studies in extending the pipeline without destabilising it, in both cases following (and, for \texttt{UnorderedGroup}, directly applying) the three-step extension pattern the codebase documents: extend the validator's allow-list, add an IR-builder handler, and only touch code generation if a genuinely new \texttt{IRPart.kind} is required.
+
+The clearest direction for future work is closing the one remaining gap the supported-subset table names explicitly: \texttt{Action} support, which would additionally require deciding how Blockly should represent Langium's type-inference/tree-rewriting semantics — a substantially different kind of construct from the five we currently support, since it does not correspond to a single, obvious block input the way an assignment or a keyword does. Scoped cross-references (restricting a reference's live-scanned options to blocks actually reachable from the referencing block's position on the workspace, rather than every declared instance workspace-wide) and an "optional input" mutator for \texttt{?}-cardinality fields are two further, smaller extensions the current architecture is already well positioned to support.
 
 % ---- Bibliography ----
 \bibliographystyle{splncs04}
