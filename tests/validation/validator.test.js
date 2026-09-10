@@ -29,17 +29,9 @@ test('validateGrammar accepts every bundled example grammar', async () => {
     }
 });
 
-test('validateGrammar rejects UnorderedGroup ("&") with a message naming the construct and rule', async () => {
+test('validateGrammar accepts UnorderedGroup ("&") - Pair uses (a=ID & b=ID)', async () => {
     const grammar = await loadGrammar(path.join(FIXTURES_DIR, 'unordered-group.langium'));
-
-    assert.throws(
-        () => validateGrammar(grammar),
-        (err) => {
-            assert.match(err.message, /unsupported node type "UnorderedGroup"/);
-            assert.match(err.message, /rule "Pair"/);
-            return true;
-        }
-    );
+    assert.equal(validateGrammar(grammar), true);
 });
 
 test('validateGrammar reports every violation, not just the first one', async () => {
@@ -50,9 +42,9 @@ test('validateGrammar reports every violation, not just the first one', async ()
     const source = `
 grammar TwoViolations
 entry Model:
-    'model' (a=ID & b=ID);
+    'model' ({infer Extra1} extra=ID)?;
 Other:
-    'other' (c=ID & d=ID);
+    'other' ({infer Extra2} extra=ID)?;
 terminal ID: /[a-zA-Z_][a-zA-Z0-9_]*/;
 hidden terminal WS: /\\s+/;
 `;
@@ -61,7 +53,7 @@ hidden terminal WS: /\\s+/;
     try {
         const grammar = await loadGrammar(tmp);
         assert.throws(() => validateGrammar(grammar), (err) => {
-            const violationCount = (err.message.match(/unsupported node type "UnorderedGroup"/g) ?? []).length;
+            const violationCount = (err.message.match(/unsupported node type "Action"/g) ?? []).length;
             assert.equal(violationCount, 2);
             assert.match(err.message, /rule "Model"/);
             assert.match(err.message, /rule "Other"/);

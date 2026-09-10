@@ -41,42 +41,45 @@ const nodeHandlers = {
             visit(e, ctx);
     },
 
-<<<<<<< Updated upstream
-    /**
-     * A grammar `Alternatives` node (`a | b | c`) with no assignment in
-     * front of it is handled as one of three distinct shapes, checked in
-     * order:
-     *
-     *   1. Every branch is a bare `Keyword` -> the whole thing is one
-     *      choice the user makes, so it becomes a single anonymous
-     *      "dropdown" IR part (one Blockly field_dropdown, one option per
-     *      keyword).
-     *
-     *   2. Every branch is a list assignment to a *different* feature
-     *      (`phones+=Phone | addresses+=Address`) -> this is Langium's
-     *      idiom for "a mixed, order-preserving list of several element
-     *      kinds", e.g. `(phones+=Phone | addresses+=Address)*` in the
-     *      AddressBook example grammar. The DSL doesn't care which
-     *      feature a given entry was assigned to, only the interleaved
-     *      order in which blocks are stacked - so all branches collapse
-     *      into ONE shared Blockly statement input rather than one input
-     *      per feature. (Visiting each branch independently would only
-     *      ever surface the *last* feature parsed into that slot,
-     *      silently dropping the others - hence the merge.)
-     *
-     *   3. Anything else (keywords mixed with rule calls, nested groups,
-     *      etc.) isn't representable as a single Blockly input yet. We
-     *      fall back to the first branch only, so the pipeline still
-     *      produces *something*, and push a warning so the loss is
-     *      visible instead of silent.
-     */
-=======
+    UnorderedGroup(node, ctx) {
+        for (const e of node.elements)
+            visit(e, ctx);
+    },
+
+/**
+ * A grammar `Alternatives` node (`a | b | c`) with no assignment in
+ * front of it is handled as one of three distinct shapes, checked in
+ * order:
+ *
+ *   1. Every branch is a bare `Keyword` -> the whole thing is one
+ *      choice the user makes, so it becomes a single anonymous
+ *      "dropdown" IR part (one Blockly field_dropdown, one option per
+ *      keyword).
+ *
+ *   2. Every branch is a list assignment to a *different* feature
+ *      (`phones+=Phone | addresses+=Address`) -> this is Langium's
+ *      idiom for "a mixed, order-preserving list of several element
+ *      kinds", e.g. `(phones+=Phone | addresses+=Address)*` in the
+ *      AddressBook example grammar. The DSL doesn't care which
+ *      feature a given entry was assigned to, only the interleaved
+ *      order in which blocks are stacked - so all branches collapse
+ *      into ONE shared Blockly statement input rather than one input
+ *      per feature. (Visiting each branch independently would only
+ *      ever surface the *last* feature parsed into that slot,
+ *      silently dropping the others - hence the merge.)
+ *
+ *   3. Anything else (keywords mixed with rule calls, nested groups,
+ *      etc.) isn't representable as a single Blockly input yet. We
+ *      fall back to the first branch only, so the pipeline still
+ *      produces *something*, and push a warning so the loss is
+ *      visible instead of silent.
+ */
+
     UnorderedGroup(node, ctx) {
     for (const e of node.elements)
         visit(e, ctx);
     },
 
->>>>>>> Stashed changes
     Alternatives(node, ctx) {
         const allKeywords = node.elements.every(e => e.$type === "Keyword");
 
