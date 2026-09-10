@@ -112,7 +112,7 @@ tests/
   helpers/                  shared test infrastructure (in-memory pipeline runner,
                              TS-to-ESM compiler + headless Blockly loader)
   fixtures/                 small hand-written .langium files for negative-path tests
-                            (a syntax error, an unsupported UnorderedGroup)
+
 
 package.json / package-lock.json  npm project + dependency lockfile (blockly, langium, vite, TS)
 tsconfig.json                     TS config, scoped to blockly_app/src
@@ -161,10 +161,10 @@ Small `$type`-checking helpers (`isParserRule`, `isTerminalRule`,
 `isKeyword`, `isAssignment`, `isGroup`, `isAlternatives`, `isRuleCall`,
 `isCrossReference`, plus `getCardinality(node)` for reading a node's
 `?`/`*`/`+` repetition marker) used by the validator and IR builder so
-nobody has to compare `.$type` string literals by hand. Also declares (but
-doesn't yet use) `isUnorderedGroup`, left as a forward-compatibility hook
-for when that Langium construct gets support added.
-
+nobody has to compare `.$type` string literals by hand, including
+`isUnorderedGroup`, since `UnorderedGroup` (Langium's `&` operator) is
+now part of the supported subset (see the validator and IR builder
+sections below).
 ### `generate_blockly/src/validator.js` — enforcing the supported subset
 
 `validateGrammar(grammar, options?)` walks every **parser rule's**
@@ -188,8 +188,7 @@ underneath it that could itself violate the subset.
 You can override which types/cardinalities are allowed via
 `options.allowedTypes` / `options.allowedCardinalities` if you extend the
 rest of the pipeline to support more constructs (the file's docstring
-specifically calls out `UnorderedGroup` as the likely next addition).
-
+specifically calls out `Action` as the next candidate for support).
 ### `generate_blockly/src/ir-builder.js` — grammar AST → IR
 
 This is the heart of the "what does this grammar rule *mean* as a UI
@@ -483,7 +482,7 @@ allows only:
 | `RuleCall` (reference to another rule) | ✅ |
 | `CrossReference` (`feature=[TargetRule:TERMINAL]`) | ✅ rendered as a live dropdown (`field_reference`) scoped to the target rule's currently-declared names, falling back to a plain text field when the target rule has no name to scan for — see "How cross-references work" above |
 | Cardinality `?`, `*`, `+`, none | ✅ |
-| `UnorderedGroup` | ❌ not yet — flagged by the validator, hooks exist in `ast-utils.js` |
+| `UnorderedGroup` (`a & b & c`) | ✅ rendered exactly like a `Group` — elements are always emitted in declaration order, since Blockly's block UI has no "any order" input; still always a *valid* instance of the rule, just not every valid ordering |
 | `Action` | ❌ not referenced by the validator's allowed-types set |
 | Any other cardinality value | ❌ |
 
@@ -582,11 +581,12 @@ required by `vite`/`langium`, see `package.json`).
   bundled grammar and *actually rejects* a grammar with a real syntax or
   linking error (see "Bugs found while building this suite" below - this
   used to silently pass).
-- **`validator.test.js`** — confirms every bundled grammar validates, that
-  an unsupported construct (`UnorderedGroup`, i.e. Langium's `&` operator)
-  is rejected with a message naming both the construct and the rule, that
-  multiple violations across different rules are *all* reported (not just
-  the first), and that `options.allowedTypes` can relax the check.
+- **`validator.test.js`** — confirms every bundled grammar validates
+  (including `UnorderedGroup`/`&`), that an unsupported construct (`Action`,
+  i.e. Langium's `{infer Type}` syntax) is rejected with a message naming
+  both the construct and the rule, that multiple violations across
+  different rules are *all* reported (not just the first), and that
+  `options.allowedTypes` can override the check in either direction.
 - **`ir-builder.test.js`** — checks each documented `IRPart.kind` mapping
   (`field`, `dropdown`, `statement`, `reference`, `value`) against real
   parsed grammars, plus the "merged alternatives" collapse
