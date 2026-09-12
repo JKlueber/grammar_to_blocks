@@ -116,7 +116,7 @@ test('generateGeneratorTs appends a trailing newline for every stackable (repeat
 
 test('generateMainTs splits entry vs. non-entry rules into separate toolbox categories', async () => {
     const mainTs = generateMainTs(await irFor('todo_list.langium'));
-    const toolboxMatch = mainTs.match(/toolbox: (\{[\s\S]*?\})\s*\}\);/);
+    const toolboxMatch = mainTs.match(/toolbox: (\{[\s\S]*?\}),\n {2}zoom:/);
     assert.ok(toolboxMatch);
     const toolbox = JSON.parse(toolboxMatch[1]);
 
