@@ -32,7 +32,10 @@ const CASES = [
     { file: inputPath('grammar.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('invalid.langium'), expect: 'pipeline-succeeds' }, // uses CrossReference - supported
     { file: path.join(FIXTURES_DIR, 'syntax-error.langium'), expect: 'fails-at-load' },
-    { file: path.join(FIXTURES_DIR, 'unordered-group.langium'), expect: 'fails-at-validate' }
+    { file: path.join(FIXTURES_DIR, 'unordered-group.langium'), expect: 'pipeline-succeeds' },
+    // Action ({infer ...}) is the one construct still explicitly
+    // documented as unsupported - see the "rejected construct" test below.
+    { file: path.join(FIXTURES_DIR, 'action.langium'), expect: 'fails-at-validate' }
 ];
 
 /** Runs the pipeline against one grammar file, capturing which stage (if any) it failed at. */
@@ -101,12 +104,13 @@ test('coverage: every documented IR part kind is exercised by at least one bundl
     assert.deepEqual(missing, [], `IR part kind(s) not exercised by any bundled grammar: ${missing.join(', ')}`);
 });
 
-test('coverage: every documented validator-rejected construct actually gets rejected', async () => {
-    // DEFAULT_ALLOWED_TYPES documents Grammar/ParserRule/Group/Alternatives/
-    // Assignment/Keyword/RuleCall/CrossReference as supported. The one
-    // construct explicitly called out in ast-utils.js/validator.js as
-    // "not yet supported" is UnorderedGroup - confirm it's still rejected
-    // (this is the negative-space counterpart to the IR-kind check above).
-    const grammar = await loadGrammar(path.join(FIXTURES_DIR, 'unordered-group.langium'));
-    assert.throws(() => validateGrammar(grammar), /UnorderedGroup/);
-});
+ test('coverage: every documented validator-rejected construct actually gets rejected', async () => {
+    // DEFAULT_ALLOWED_TYPES documents Grammar/ParserRule/Group/
+    // UnorderedGroup/Alternatives/Assignment/Keyword/RuleCall/
+    // CrossReference as supported. The one construct explicitly called
+    // out in validator.js as "not yet supported" is Action - confirm
+    // it's still rejected (this is the negative-space counterpart to the
+    // IR-kind check above).
+    const grammar = await loadGrammar(path.join(FIXTURES_DIR, 'action.langium'));
+    assert.throws(() => validateGrammar(grammar), /Action/);
+ });

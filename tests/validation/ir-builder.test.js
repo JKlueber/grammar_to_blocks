@@ -166,3 +166,17 @@ test('entry rule is flagged with entry: true, non-entry rules with entry: false'
     assert.equal(ir.find(r => r.name === 'Model').entry, true);
     assert.equal(ir.find(r => r.name === 'Task').entry, false);
 });
+
+test('UnorderedGroup ("a & b") is walked exactly like a Group: elements become ordinary parts in declaration order', async () => {
+    const path = await import('node:path');
+    const { REPO_ROOT } = await import('../helpers/pipeline.js');
+    const grammar = await loadGrammar(path.join(REPO_ROOT, 'tests', 'fixtures', 'unordered-group.langium'));
+    const ir = buildIR(grammar);
+    const parts = partsOf(ir, 'Pair');
+
+    // 'pair' (a=ID & b=ID) -> keyword 'pair', then a's field, then b's
+    // field, in the order they're written - Blockly has no "any order"
+    // input, so declaration order is all there is.
+    assert.deepEqual(parts.map(p => p.kind), ['keyword', 'field', 'field']);
+    assert.deepEqual(parts.map(p => p.feature), [undefined, 'a', 'b']);
+});

@@ -26,9 +26,12 @@ export function isRuleCall(node) {
     return node.$type === "RuleCall";
 }
 
-// Not part of the restricted subset yet, but named here so the validator
-// and IR builder can reference it without guessing string literals when
-// support is added later.
+// UnorderedGroup nodes are Langium's `&` operator (e.g. `a=ID & b=ID`) -
+// part of the supported subset (see validator.js's DEFAULT_ALLOWED_TYPES
+// and ir-builder.js's UnorderedGroup handler). Blockly's block UI has no
+// native "any order" input, so it's walked/visited exactly like a plain
+// Group: elements are always emitted and read back in declaration order,
+// not enforced by the grammar itself.
 export function isUnorderedGroup(node) {
     return node.$type === "UnorderedGroup";
 }

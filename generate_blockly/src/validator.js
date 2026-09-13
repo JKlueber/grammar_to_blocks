@@ -1,17 +1,25 @@
 import { isParserRule } from './ast-utils.js';
 
-/**
- * Node types currently supported end-to-end (parser rules, groups,
- * alternatives, assignments, keywords, rule calls, cross-references).
- * Extend this set (or pass a custom `allowedTypes` option) to support
- * more Langium constructs, e.g. add "UnorderedGroup" once the IR builder
- * and generators know how to handle it.
- *
- * "CrossReference" (`feature=[TargetRule:TERMINAL]`, e.g.
- * `assignee=[Member:ID]`) is allowed here; see ir-builder.js for how it's
- * turned into a block input and blockly-ts-target.js for how that input
- * is rendered.
- */
+ /**
+- * Node types currently supported end-to-end (parser rules, groups,
+- * alternatives, assignments, keywords, rule calls, cross-references).
+- * Extend this set (or pass a custom `allowedTypes` option) to support
+- * more Langium constructs, e.g. add "UnorderedGroup" once the IR builder
+- * and generators know how to handle it.
++ * Node types currently supported end-to-end (parser rules, groups,
++ * unordered groups, alternatives, assignments, keywords, rule calls,
++ * cross-references). Extend this set (or pass a custom `allowedTypes`
++ * option) to support more Langium constructs, e.g. "Action".
++ *
++ * "UnorderedGroup" (Langium's `&` operator, e.g. `a=ID & b=ID`) is walked
++ * exactly like "Group" below - see ir-builder.js's UnorderedGroup handler
++ * for how it's turned into (ordinary, order-preserving) IR parts.
+  *
+  * "CrossReference" (`feature=[TargetRule:TERMINAL]`, e.g.
+  * `assignee=[Member:ID]`) is allowed here; see ir-builder.js for how it's
+  * turned into a block input and blockly-ts-target.js for how that input
+  * is rendered.
+  */
 export const DEFAULT_ALLOWED_TYPES = new Set([
     'Grammar',
     'ParserRule',
@@ -83,6 +91,7 @@ export function validateGrammar(grammar, options = {}) {
         switch (node.$type) {
 
             case "Group":
+            case "UnorderedGroup":
             case "Alternatives":
                 for (const e of node.elements)
                     walk(e, context);

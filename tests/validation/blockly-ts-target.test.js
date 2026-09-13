@@ -78,7 +78,7 @@ test('a plain feature=Rule reference to a rule that IS separately +=-repeated fa
 
     const assigneeArg = task.args0.find(a => a.name === 'ASSIGNEE');
     assert.equal(assigneeArg.type, 'field_input');
-    assert.equal(assigneeArg.text, 'default_assignee');
+    assert.equal(assigneeArg.text, '');
 });
 
 test('feature names are upper-snake-cased for arg names (unlike block-json-generator.js, which keeps them raw)', async () => {

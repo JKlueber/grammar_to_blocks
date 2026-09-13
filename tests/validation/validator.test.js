@@ -34,6 +34,31 @@ test('validateGrammar accepts UnorderedGroup ("&") - Pair uses (a=ID & b=ID)', a
     assert.equal(validateGrammar(grammar), true);
 });
 
+test('validateGrammar recurses into UnorderedGroup elements to catch nested unsupported constructs', async () => {
+    // Regression test: DEFAULT_ALLOWED_TYPES has included "UnorderedGroup"
+    // since it was added to the supported subset, but the walk() switch
+    // originally had no matching case - so elements *inside* an
+    // UnorderedGroup were never inspected, and something like an Action
+    // hidden inside one would silently pass instead of being rejected.
+    const fs = await import('node:fs/promises');
+    const source = `
+grammar UnorderedGroupNestedViolation
+entry Model:
+    'model' (({infer Extra} extra=ID) & other=ID);
+terminal ID: /[a-zA-Z_][a-zA-Z0-9_]*/;
+hidden terminal WS: /\\s/;
+`;
+    const tmp = path.join(FIXTURES_DIR, '__generated-unordered-group-nested-violation.langium');
+    await fs.writeFile(tmp, source);
+    try {
+        const grammar = await loadGrammar(tmp);
+        assert.throws(() => validateGrammar(grammar), /unsupported node type "Action"/);
+    } finally {
+        await fs.rm(tmp, { force: true });
+    }
+});
+
+
 test('validateGrammar reports every violation, not just the first one', async () => {
     // Two independent unsupported constructs in two different rules -
     // both should be listed, since the validator is documented to collect
@@ -65,9 +90,16 @@ hidden terminal WS: /\\s+/;
 });
 
 test('validateGrammar honours a custom allowedTypes override', async () => {
-    const grammar = await loadGrammar(path.join(FIXTURES_DIR, 'unordered-group.langium'));
+    // unordered-group.langium no longer demonstrates an override (its
+    // construct, UnorderedGroup, is in DEFAULT_ALLOWED_TYPES already) -
+    // use action.langium (Action, still rejected by default) instead, so
+    // this test actually exercises "rejected by default, accepted once
+    // explicitly allowed" rather than a no-op relaxation.
+    const grammar = await loadGrammar(path.join(FIXTURES_DIR, 'action.langium'));
 
-    const relaxed = new Set([...DEFAULT_ALLOWED_TYPES, 'UnorderedGroup']);
+    assert.throws(() => validateGrammar(grammar), /Action/);
+
+    const relaxed = new Set([...DEFAULT_ALLOWED_TYPES, 'Action']);
     assert.equal(validateGrammar(grammar, { allowedTypes: relaxed }), true);
 });
 
