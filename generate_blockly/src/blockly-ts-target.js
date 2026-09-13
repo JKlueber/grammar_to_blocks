@@ -80,7 +80,7 @@ function partToArg(part, stackTypes, valueRules, nameFields) {
             return {
                 type: "field_input",
                 name: toArgName(part.feature),
-                text: "default_" + part.feature
+                text: ""
             };
         }
     }
@@ -107,18 +107,6 @@ function partToArg(part, stackTypes, valueRules, nameFields) {
         arg.nameField = toArgName(arg.nameField);
     }
 
-    // Provide helpful default text for plain text fields so generated
-    // code is never empty. This covers "field" text inputs and the
-    // text-field *fallback* a "reference" part gets when its target rule
-    // has no name to build a dropdown from (see argBuilders.reference in
-    // block-json-generator.js). A "reference" part that resolved to the
-    // dynamic field_reference field is skipped here - that field type
-    // has no "text" default, it picks its first live option instead.
-    if (arg.type === "field_input" && !arg.text) {
-        arg.text = part.kind === "reference"
-            ? "target_" + part.feature
-            : "Unnamed";
-    }
 
     if (part.kind === "statement") {
         const names = (part.refRuleNames?.length ? part.refRuleNames : (part.refRuleName ? [part.refRuleName] : []))
@@ -253,18 +241,24 @@ function ruleToGeneratorFunction(rule, stackTypes, valueRules) {
         const argName = toArgName(part.feature);
         const isConvertedValueField = part.kind === "value" && part.refRuleName && !valueRules.has(part.refRuleName.toLowerCase());
 
-        // "field" (ID/INT text/number inputs), "dropdown", a "value" part
-        // that got converted to a plain text field (no matching value
-        // block exists), and "reference" (cross-reference) parts are all
-        // backed by a single Blockly field, so they're all read back the
-        // same way via getFieldValue - a cross-reference's field just
-        // happens to hold the referenced element's name as plain text,
-        // which is exactly what the original DSL syntax expects there.
+        // Cardinality "?" (part.optional) legitimately allows the feature
+        // to be absent, so those are exempt from the check. Numeric
+        // fields are exempt too: field_number always holds a real number
+        // (default 0), so there's no way to tell "left at 0" apart from
+        // "never touched" - 0 is as valid an entered value as any other.
+        const requiresValue = !part.optional && !(part.kind === "field" && part.fieldType === "number");
+
         if (part.kind === "field" || part.kind === "dropdown" || part.kind === "reference" || isConvertedValueField) {
-            setupLines.push(`  const ${varName} = block.getFieldValue('${argName}') || 'Unnamed';`);
+            setupLines.push(`  const ${varName} = block.getFieldValue('${argName}');`);
+            if (requiresValue) {
+                setupLines.push(`  if (!${varName}) throw new Error("Block '${blockType}': '${humanizeFeature(part.feature)}' has no value - fill it in before generating code.");`);
+            }
             items.push({ frag: varName, multiline: false });
         } else if (part.kind === "value") {
-            setupLines.push(`  const ${varName} = generator.valueToCode(block, '${argName}', generator.ORDER_NONE) || '';`);
+            setupLines.push(`  const ${varName} = generator.valueToCode(block, '${argName}', generator.ORDER_NONE);`);
+            if (requiresValue) {
+                setupLines.push(`  if (!${varName}) throw new Error("Block '${blockType}': '${humanizeFeature(part.feature)}' is not connected to anything.");`);
+            }
             items.push({ frag: varName, multiline: false });
         } else if (part.kind === "statement") {
             const raw = `generator.statementToCode(block, '${argName}').replace(/\\n$/, '')`;
