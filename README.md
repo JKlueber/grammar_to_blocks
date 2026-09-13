@@ -172,7 +172,7 @@ definition tree (terminal rules are skipped) and collects — rather than
 throws on the first — every construct that falls outside:
 
 - `DEFAULT_ALLOWED_TYPES`: `Grammar`, `ParserRule`, `Group`, `Alternatives`,
-  `Assignment`, `Keyword`, `RuleCall`, `CrossReference`.
+  `UnorderedGroup`, `Assignment`, `Keyword`, `RuleCall`, `CrossReference`.
 - `DEFAULT_ALLOWED_CARDINALITIES`: no cardinality at all, `?`, `*`, `+`.
 
 If it finds unsupported node types or cardinalities anywhere in a rule, it
@@ -184,6 +184,11 @@ On success it returns `true`.
 leaf, the same as `Keyword`/`RuleCall` — the validator doesn't need to
 descend into the reference's own target-rule/terminal, since there's nothing
 underneath it that could itself violate the subset.
+
+`UnorderedGroup` nodes (`a & b`) are walked exactly like `Group` — every
+element still needs checking, since a construct outside the supported
+subset can just as easily be hidden inside an unordered group as inside a
+plain sequence.
 
 You can override which types/cardinalities are allowed via
 `options.allowedTypes` / `options.allowedCardinalities` if you extend the
@@ -643,7 +648,7 @@ required by `vite`/`langium`, see `package.json`).
 
 ### Bugs found while building this suite
 
-Writing tests against real (not mocked) behavior surfaced three
+Writing tests against real (not mocked) behavior surfaced four
 pre-existing bugs, all fixed as part of adding this suite:
 
 1. **`loadGrammar` never actually checked for errors.** It called
@@ -665,8 +670,16 @@ pre-existing bugs, all fixed as part of adding this suite:
    grammar's own name. Renamed the grammar declaration to
    `AddressBookGrammar` (the entry rule keeps its original name,
    `AddressBook`).
+4. **`validateGrammar`'s `walk()` never had a `case` for
+   `UnorderedGroup`.** It was added to `DEFAULT_ALLOWED_TYPES` so a bare
+   `(a & b)` group itself would pass the type check, but the traversal
+   switch only descended into `Group`/`Alternatives` elements - so an
+   unsupported construct nested *inside* an unordered group (e.g.
+   `({infer X} & ok=ID)`) silently validated instead of being rejected.
+   Fixed by adding `UnorderedGroup` to the same switch case as `Group`
+   and `Alternatives`. See `tests/validation/validator.test.js`'s "recurses into UnorderedGroup elements" test.
 
-All three were only reachable because bug #1 was masking them - the
+All four were only reachable because bug #1 was masking them - the
 pipeline "worked" in the sense of producing files, but was silently
 accepting grammars it should have rejected. `npm test` now exercises this
 path directly (`grammar-loader.test.js`'s "rejects a grammar with a
