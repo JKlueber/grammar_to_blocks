@@ -137,3 +137,4 @@ test('colour is a deterministic hash of the rule name (stable across repeated ge
         assert.ok(block.colour >= 0 && block.colour < 360, `colour ${block.colour} out of hue range`);
     }
 });
+
