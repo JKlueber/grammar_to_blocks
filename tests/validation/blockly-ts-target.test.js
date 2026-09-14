@@ -31,7 +31,7 @@ test('generateBlocksTs imports the reference-field module for its registration s
 });
 
 test('merged alternatives get a shared "_or_" check type on every participating rule', async () => {
-    const blocks = parseBlocksJson(generateBlocksTs(await irFor('adress_book.langium')));
+    const blocks = parseBlocksJson(generateBlocksTs(await irFor('address_book.langium')));
     const phone = blocks.find(b => b.type === 'phone');
     const address = blocks.find(b => b.type === 'address');
     const contact = blocks.find(b => b.type === 'contact');

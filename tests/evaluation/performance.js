@@ -101,7 +101,7 @@ async function benchmarkBundledExamples() {
         'todo_list.langium',
         'state_machine.langium',
         'recipe.langium',
-        'adress_book.langium',
+        'address_book.langium',
         'grammar.langium',
         'cross_refrences.langium'
     ];

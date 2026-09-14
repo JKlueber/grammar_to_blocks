@@ -72,8 +72,8 @@ test('round trip: an empty statement input produces valid (if empty) output rath
     }
 });
 
-test('round trip: adress_book.langium reconstructs interleaved phone/address entries in stacking order', async () => {
-    const { blocksTs, generatorTs } = await runPipeline(inputPath('adress_book.langium'));
+test('round trip: address_book.langium reconstructs interleaved phone/address entries in stacking order', async () => {
+    const { blocksTs, generatorTs } = await runPipeline(inputPath('address_book.langium'));
     const { defineBlocks, generator, cleanup } = await loadGeneratedModules({ blocksTs, generatorTs });
 
     try {
