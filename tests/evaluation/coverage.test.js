@@ -30,7 +30,7 @@ const CASES = [
     { file: inputPath('recipe.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('adress_book.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('grammar.langium'), expect: 'pipeline-succeeds' },
-    { file: inputPath('invalid.langium'), expect: 'pipeline-succeeds' }, // uses CrossReference - supported
+    { file: inputPath('cross_refrences.langium'), expect: 'pipeline-succeeds' },
     { file: path.join(FIXTURES_DIR, 'syntax-error.langium'), expect: 'fails-at-load' },
     { file: path.join(FIXTURES_DIR, 'unordered-group.langium'), expect: 'pipeline-succeeds' },
     // Action ({infer ...}) is the one construct still explicitly

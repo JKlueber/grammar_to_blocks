@@ -103,7 +103,7 @@ async function benchmarkBundledExamples() {
         'recipe.langium',
         'adress_book.langium',
         'grammar.langium',
-        'invalid.langium'
+        'cross_refrences.langium'
     ];
 
     const results = {};

@@ -84,7 +84,7 @@ test('every bundled example grammar in generate_blockly/input/ loads without err
         'recipe.langium',
         'adress_book.langium',
         'grammar.langium',
-        'invalid.langium'
+        'cross_refrences.langium'
     ];
 
     for (const filename of examples) {
