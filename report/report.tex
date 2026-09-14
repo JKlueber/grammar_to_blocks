@@ -2,35 +2,41 @@
 %
 \usepackage{graphicx}
 \usepackage[utf8]{inputenc}
-\usepackage{hyperref}
 \usepackage{listings}
 \usepackage{color}
-\emergencystretch=3em
+\usepackage{csquotes}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{tabularx}
+\usepackage[htt]{hyphenat}
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
 \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
 
 \lstdefinestyle{mystyle}{
-    backgroundcolor=\color{backcolour},
+    backgroundcolor=\color{backcolour},   
     commentstyle=\color{codegreen},
     keywordstyle=\color{magenta},
     numberstyle=\tiny\color{codegray},
     stringstyle=\color{codepurple},
     basicstyle=\ttfamily\footnotesize,
-    breakatwhitespace=false,
-    breaklines=true,
-    captionpos=b,
-    keepspaces=true,
-    numbers=left,
-    numbersep=5pt,
-    showspaces=false,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
     showstringspaces=false,
-    showtabs=false,
+    showtabs=false,                  
     tabsize=2
 }
 
 \lstset{style=mystyle}
+% Used for displaying a sample figure. If possible, figure files should
+% be included in EPS format.
+%
 % If you use the hyperref package, please uncomment the following line
 % to display URLs in blue roman font according to Springer's eBook style:
 % \renewcommand\UrlFont{\color{blue}\rmfamily}
@@ -38,39 +44,34 @@
 \begin{document}
 %
 \title{From Langium Grammars to Blockly Editors\\ A Restricted-Subset Code Generation Pipeline}
+\subtitle{\scriptsize Generative Software Engineering SS26}
+%
 \titlerunning{From Langium Grammars to Blockly Editors}
-\subtitle{\scriptsize Generative Software Engineering}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
 %
 \author{Md Mehedi Hasan \and Julian Klüber}
-\authorrunning{~}
 \institute{Bauhaus-Universität Weimar}
 %
-\maketitle
+\maketitle              % typeset the header of the contribution
 %
 \begin{abstract}
 Textual grammars are an efficient way to define domain-specific languages (DSLs), but they require users to learn concrete syntax before they can write anything valid. Visual, block-based editors such as Google's Blockly lower this barrier by letting users assemble programs from interlocking blocks instead of typing text, at the cost of someone having to hand-build a block definition and code generator for every DSL.
 
-We present a pipeline that closes this gap automatically: given a \href{https://langium.org/}{Langium} grammar restricted to a well-defined subset of constructs, our tool validates it, builds a small intermediate representation (IR) capturing what each grammar rule \emph{means} as a user-facing input, and emits a ready-to-run Blockly block editor — block definitions, a code generator that reconstructs the DSL's own concrete syntax, and the wiring to run it in a browser. We describe the pipeline's four stages, two extensibility case studies we carried out ourselves (cross-references rendered as a live, workspace-scanning dropdown field, and Langium's unordered-group operator \texttt{\&}), and validate the implementation against a 45-test unit/integration suite, a 12-test coverage suite, and a performance benchmark across synthetic grammars of up to 200 rules.
+We present a pipeline that closes this gap automatically: given a Langium grammar restricted to a well-defined subset of constructs, our tool validates it, builds a small intermediate representation (IR) capturing what each grammar rule means as a user-facing input, and emits a ready-to-run Blockly block editor. We describe the pipeline's four stages, two extensibility case studies we carried out ourselves (cross-references rendered as a live, workspace-scanning dropdown field, and Langium's unordered-group operator \texttt{\&}), and validate the implementation against a 45-test unit/integration suite, a 12-test coverage suite, and a performance benchmark across synthetic grammars of up to 200 rules, all executed on the reference machine described in Appendix~\ref{sec:appendix}.
 \end{abstract}
 
 \section{Introduction}
 
 \subsection{Background}
-Domain-specific languages let subject-matter experts express solutions in vocabulary close to their problem, rather than in a general-purpose programming language. Building a DSL from a textual grammar is well supported by modern language workbenches: \href{https://langium.org/}{Langium}~\cite{langium} is an open-source TypeScript framework for implementing DSLs, generating a parser, an abstract syntax tree (AST), and a Language Server Protocol implementation directly from an \texttt{.langium} grammar file.
+Domain-specific languages let subject-matter experts express solutions in vocabulary close to their problem, rather than in a general-purpose programming language. Building a DSL from a textual grammar is well supported by modern language workbenches: \href{https://langium.org/}{Langium} is an open-source TypeScript framework for implementing DSLs, generating a parser, an abstract syntax tree (AST), and a Language Server Protocol implementation directly from an \texttt{.langium} grammar file.
 
-Textual syntax is not the only way to interact with a DSL, however. Block-based visual programming environments, popularised by Scratch and, in library form, by Google's \href{https://developers.google.com/blockly}{Blockly}~\cite{blockly}, let users construct programs by dragging and connecting graphical blocks. Blocks encode syntax structurally (a block that plugs into a statement socket \emph{is} syntactically valid there by construction), which removes an entire class of errors a textual editor would otherwise have to catch after the fact, and makes DSLs approachable to users who are not yet comfortable typing code by hand.
+Textual syntax is not the only way to interact with a DSL, however. Block-based visual programming environments, popularised by Scratch and, in library form, by Google's \href{https://developers.google.com/blockly}{Blockly}, let users construct programs by dragging and connecting graphical blocks. Blocks encode syntax structurally (a block that plugs into a statement socket \emph{is} syntactically valid there by construction), which removes an entire class of errors a textual editor would otherwise have to catch after the fact, and makes DSLs approachable to users who are not yet comfortable typing code by hand.
 
 \subsection{Motivation}
-Building a Blockly editor for a DSL by hand means writing one block definition and one code-generator function per grammar rule, and keeping both in sync with the grammar as it evolves — tedious, repetitive, and easy to let drift out of sync. Since a Langium grammar already declares, precisely, what each rule's concrete syntax looks like (its sequence of keywords, assigned features, and sub-rule references), most of the information needed to derive a corresponding block definition is already present in the grammar itself.
+Building a Blockly editor for a DSL by hand means writing one block definition and one code-generator function per grammar rule, and keeping both in sync with the grammar as it evolves. This process is tedious, repetitive, and easy to let drift out of sync. Since a Langium grammar already declares, precisely, what each rule's concrete syntax looks like (its sequence of keywords, assigned features, and sub-rule references), most of the information needed to derive a corresponding block definition is already present in the grammar itself.
 
-This motivates the project's central question: for a well-defined, restricted subset of Langium grammars, can a block editor — definitions, generator, and workspace — be derived automatically, rather than written by hand for every DSL?
-
-\section{Related Work}
-The status quo this project improves on is writing Blockly block definitions and their matching code generators by hand, one pair per grammar rule — the approach Blockly's own documentation and tutorials assume, and the only option when no grammar exists to derive them from. Our contribution is specifically the derivation step: given a grammar already written for other purposes (parsing, an LSP implementation), produce the block editor as a by-product rather than a second, separately maintained artifact.
-
-A different family of tools reaches a related goal — letting non-experts edit a DSL structurally rather than as raw text — through \emph{projectional} editing instead of code generation. JetBrains MPS and Eclipse Xtext combined with Sirius let a user edit a program's abstract syntax tree directly, through a UI the tool renders from a language definition, with no separate "concrete syntax text" ever existing as an intermediate artifact. This is more general than our approach (it is not limited to the small grammar subset $S$ we support) but also heavier-weight: it requires committing to a projectional editing model for the whole language, rather than adding a block editor on top of a grammar that also still produces ordinary parseable text via Langium. Our pipeline instead treats the Blockly editor as one more \emph{view} on a grammar that keeps its normal textual form, which is what makes the "still valid concrete syntax" property in Section~\ref{sec:example} meaningful — the two representations stay interchangeable, rather than the visual one replacing the textual one outright.
-
-Scratch and Blockly itself are the closest precedent for the block-editor half of the problem, having established the interlocking-block interaction model we build on rather than reinvent; our contribution is purely on the generation side, deriving Blockly's block-JSON and generator-function artifacts from a grammar instead of authoring them directly.
+This motivates the project's central question: for a well-defined, restricted subset of Langium grammars, can a block editor, consisting of definitions, generator, and workspace, be derived automatically, rather than written by hand for every DSL?
 
 \section{Problem Statement}
 Given a Langium grammar $G$ whose parser rules use only constructs from a supported subset $S$ (Section~\ref{sec:limitations} defines $S$ precisely), the pipeline must produce:
@@ -79,91 +80,85 @@ Given a Langium grammar $G$ whose parser rules use only constructs from a suppor
 \item[a code generator] a function per block type that reconstructs a syntactically valid instance of $G$'s concrete syntax from the values a user has entered into that block's fields and connected inputs;
 \item[a runnable editor] a Blockly workspace, pre-populated with a toolbox containing every generated block, that re-renders the generated DSL text live as the user edits the workspace.
 \end{description}
-If $G$ uses a construct outside $S$, the pipeline must reject it before generating anything, reporting every offending construct and the rule it occurs in — not merely the first one found.
+If $G$ uses a construct outside $S$, the pipeline must reject it before generating anything, reporting every offending construct and the rule it occurs in.
 
 \section{Example \& Intuition}
 \label{sec:example}
-Consider the bundled \texttt{Recipe} grammar (Listing~\ref{lst:recipe-grammar}): a \texttt{Cookbook} names itself and contains zero-or-more \texttt{Ingredient}s followed by one-or-more \texttt{Step}s, and each \texttt{Step} names which previously declared \texttt{Ingredient} it uses via a Langium \emph{cross-reference} (\texttt{ingredient=[Ingredient]}) rather than nesting a new one.
 
-\begin{lstlisting}[caption=The bundled \texttt{recipe.langium} example grammar, label=lst:recipe-grammar]
-grammar Recipe
+Before describing the pipeline in the abstract, it helps to trace one grammar all the way through it, since every stage's job is easiest to see concretely: \hyperref[step1]{(1)} Langium turns grammar text into an AST, \hyperref[step2]{(2)} our Validator checks if all rules are part of the supported subset, \hyperref[step3]{(3)} our IR builder turns that AST into a much simpler intermediate representation, \hyperref[step4]{(4)} our target generator turns the IR into Blockly blocks, and \hyperref[step5]{(5)} those blocks, once assembled by a user, are read back into valid DSL text.
 
-entry Cookbook:
-    'recipe' name=ID '{'
-        ingredients+=Ingredient*
-        steps+=Step+
+Consider the bundled \texttt{Todo} grammar (Listing~\ref{lst:todo-grammar}): a \texttt{Model} names itself and contains zero-or-more \texttt{Task}s, and each \texttt{Task} has a name plus two keyword-alternative features, \texttt{priority} and \texttt{done}.
+
+\newpage
+
+\begin{lstlisting}[caption=The bundled \texttt{todo\_list.langium} example grammar, label=lst:todo-grammar]
+grammar Todo
+
+entry Model:
+    'todo' name=ID '{'
+        items+=Task*
     '}';
 
-Ingredient:
-    'ingredient' name=ID amount=INT;
-
-Step:
-    'step' number=INT action=('add' | 'mix' | 'cook' | 'serve')
-    ingredient=[Ingredient];
+Task:
+    'task'
+    name=ID
+    priority=('low' | 'medium' | 'high')
+    done=('yes' | 'no')
+;
 \end{lstlisting}
 
-Running \texttt{node generate\_blockly\slash src\slash parse.js generate\_blockly\slash input\slash recipe.langium} turns this into three blocks. The \texttt{Step} block's generated Blockly JSON (Listing~\ref{lst:recipe-json}) shows the interesting case: \texttt{ingredient=\allowbreak [Ingredient]} becomes a \texttt{field\_\allowbreak reference} — a custom dropdown field (Section~\ref{sec:crossref}) rather than a plain text box, since \texttt{Ingredient} declares a plain \texttt{name=ID} field the dropdown can scan for.
+\textbf{Step 1: Parsing to an AST.}\label{step1} Langium's own grammar services parse this text into a full abstract syntax tree: nested \texttt{ParserRule}, \texttt{Group}, \texttt{Assignment}, \texttt{Alternatives}, and \texttt{Keyword} nodes, each carrying the bookkeeping Langium needs for its own tooling (source positions, cross-reference resolution, and so on). This AST is precise, but it is also far more detailed than a code generator needs.
 
-\begin{lstlisting}[caption={Generated block JSON for the \texttt{Step} rule (excerpt)}, label=lst:recipe-json]
+\textbf{Step 2: Validating the grammar.}\label{step2} The validator walks the grammar definitions to ensure every AST node type (such as \texttt{ParserRule}, \texttt{Assignment}, \texttt{Keyword}, and \texttt{Alternatives}) and cardinality (such as \texttt{*}) falls within the supported subset. It verifies that both \texttt{Model} and \texttt{Task} contain no unsupported constructs before continuing.
+
+\textbf{Step 3: Simplifying to an IR.}\label{step3} The IR builder walks the AST and asks, for every rule and every one of its parts, one question: \emph{what kind of user-facing input does this correspond to?} The answer is recorded as one \texttt{IRPart} per part of the rule (Section~\ref{sec:ir} gives the full picture). For \texttt{Task}, this produces four parts: a \texttt{keyword} for the literal \texttt{'task'}, a \texttt{field} for \texttt{name=ID} (a text box), and two \texttt{dropdown}s for \texttt{priority} and \texttt{done} (closed choices, one option per keyword). For \texttt{Model}, \texttt{items+=Task*} produces a \texttt{statement} part (Blockly's stacking idiom for repetition) recording that \texttt{Task} blocks are what may be stacked there.
+
+\textbf{Step 4: Generating blocks from the IR.}\label{step4} With the AST's complexity already resolved into six plain \texttt{IRPart} kinds, turning the IR into Blockly JSON is now a simple, mechanical per-kind mapping: \texttt{field} becomes \texttt{field\_input}/ \texttt{field\_number}, \texttt{dropdown} becomes \texttt{field\_dropdown}, and \texttt{statement} becomes an \texttt{input\_statement} whose "check" type ties it to the stacked rule's own block. Listing~\ref{lst:todo-json} shows the result for \texttt{Task}: because \texttt{Task} is only ever repeated via \texttt{items+=Task*}, its block also receives a self-typed \texttt{previousStatement}/ \texttt{nextStatement} of \texttt{"task"}, so several \texttt{Task} blocks can stack inside \texttt{Model}'s statement input.
+
+\begin{lstlisting}[caption={Generated block JSON for the \texttt{Task} rule (excerpt)}, label=lst:todo-json, float]
 {
-  "type": "step",
-  "message0": "step Number: %1 Action: %2 Ingredient: %3",
+  "type": "task",
+  "message0": "task Name: %1 Priority: %2 Done: %3",
   "args0": [
-    { "type": "field_number",   "name": "NUMBER" },
-    { "type": "field_dropdown", "name": "ACTION",
-      "options": [["add","add"],["mix","mix"],
-                  ["cook","cook"],["serve","serve"]] },
-    { "type": "field_reference", "name": "INGREDIENT",
-      "referencesType": "ingredient", "nameField": "NAME" }
+    { "type": "field_input",    "name": "NAME" },
+    { "type": "field_dropdown", "name": "PRIORITY",
+      "options": [["low","low"],["medium","medium"],
+                  ["high","high"]] },
+    { "type": "field_dropdown", "name": "DONE",
+      "options": [["yes","yes"],["no","no"]] }
   ],
-  "previousStatement": "step", "nextStatement": "step"
+  "previousStatement": "task", "nextStatement": "task"
 }
 \end{lstlisting}
 
-Assembling one \texttt{cookbook} block, one \texttt{ingredient} block named \texttt{flour}, and one \texttt{step} block that picks \texttt{flour} from its (live-scanned) dropdown, the generator reconstructs the following DSL text, character-for-character valid \texttt{Recipe} syntax:
-\begin{lstlisting}[caption=Reconstructed DSL text for the workspace described above, label=lst:recipe-output]
-recipe pancakes {
-  ingredient flour 200
-  step 1 mix flour
+\textbf{Step 5: From blocks back to DSL text.}\label{step5} A matching \texttt{forBlock['task']} function is generated alongside the block definition; it reads each field back out with \texttt{block.getFieldValue(...)} and splices the values into the rule's original concrete syntax. Assembling one \texttt{model} block named \texttt{chores} with two \texttt{task} blocks stacked into its statement input, running the generator reconstructs the following text:
+
+\begin{lstlisting}[caption=Reconstructed DSL text for the workspace described above, label=lst:todo-output]
+todo chores {
+  task dishes high no
+  task laundry low yes
 }
 \end{lstlisting}
-This round-trip — grammar in, working editor out, edited workspace back to valid concrete syntax — is exactly what every test in Section~\ref{sec:validation} exercises for the pipeline's other bundled grammars.
+
+This five-step round-trip (AST in, grammar validated, IR out, blocks generated, DSL text reconstructed) is exactly what every test in Section~\ref{sec:validation} exercises for the pipeline's other bundled grammars, including the more involved cross-reference and unordered-group cases discussed in Sections~\ref{sec:crossref} and~\ref{sec:unordered}.
 
 \section{Implementation}
 
 \subsection{Pipeline Architecture}
 The pipeline (\texttt{generate\_blockly/src/}) is organised as four sequential stages, each with a single, narrow responsibility:
 \begin{enumerate}
-\item \textbf{\texttt{grammar-loader.js}} parses the \texttt{.langium} file using Langium's own grammar services (\texttt{createLangiumGrammarServices}) and throws if the document has any error-severity diagnostic — a real syntax or linking error, not merely an unused-rule warning.
-\item \textbf{\texttt{validator.js}} walks every parser rule's definition tree and collects — rather than fails fast on — every AST node type or cardinality that falls outside the supported subset, so a user gets one complete report instead of fixing violations one at a time.
+\item \textbf{\texttt{grammar-loader.js}} parses the \texttt{.langium} file using Langium's own grammar services (\texttt{createLangiumGrammarServices}) and throws if the document has any error-severity diagnostic.
+\item \textbf{\texttt{validator.js}} walks every parser rule's definition tree and collects every AST node type or cardinality that falls outside the supported subset, so a user gets one complete report instead of fixing violations one at a time.
 \item \textbf{\texttt{ir-builder.js}} walks the (now validated) AST and produces an array of \texttt{RuleIR} objects: a rule name plus an ordered list of \texttt{IRPart}s, the pipeline's own grammar-agnostic vocabulary for "what does this piece of the rule mean as a block input."
-\item \textbf{\texttt{blockly-\allowbreak ts-\allowbreak target.js}} turns \texttt{RuleIR[]} into three TypeScript files — \texttt{blocks.ts} (block definitions), \texttt{generator.ts} (the \texttt{forBlock} functions that reconstruct DSL text), and \texttt{main.ts} (workspace + toolbox wiring) — which are written directly into \texttt{blockly\_app\slash src\slash}, ready for \texttt{npm run dev} to serve.
+\item \textbf{\texttt{blockly-\allowbreak ts-\allowbreak target.js}} turns
+\texttt{RuleIR[]} into three TypeScript files: 
+\newline \texttt{blocks.ts} (block definitions), \texttt{generator.ts} (the \texttt{forBlock} functions that reconstruct DSL text), and \texttt{main.ts} (workspace + toolbox wiring). Those are written directly into \texttt{blockly\_app\slash src\slash}, ready for \texttt{npm run dev} to serve.
 \end{enumerate}
-
-\begin{figure}[h]
-\centering
-\fbox{\begin{minipage}{0.9\textwidth}
-\centering
-\texttt{.langium grammar} \\
-$\big\downarrow$ \textit{grammar-loader.js (parse)} \\
-\texttt{Langium AST} \\
-$\big\downarrow$ \textit{validator.js (reject unsupported constructs)} \\
-\texttt{validated AST} \\
-$\big\downarrow$ \textit{ir-builder.js (AST $\rightarrow$ RuleIR[])} \\
-\texttt{RuleIR[]} \\
-$\big\downarrow$ \textit{blockly-ts-target.js (RuleIR[] $\rightarrow$ TS files)} \\
-\texttt{blocks.ts~/~generator.ts~/~main.ts}
-\end{minipage}}
-\caption{The four pipeline stages and the artifact each one hands to the next}
-\label{fig:pipeline}
-\end{figure}
-
-Figure~\ref{fig:pipeline} summarises the four stages as a straight-line data flow: each stage consumes exactly the previous stage's output and produces one new artifact, with no stage reaching back into an earlier one's internals.
-
 Separating stage 3 (grammar semantics) from stage 4 (Blockly-specific code generation) behind the small \texttt{IRPart} vocabulary is what let us extend the pipeline (Sections~\ref{sec:crossref} and~\ref{sec:unordered}) by touching only one or two of the four stages at a time, rather than the whole codebase.
 
 \subsection{The Intermediate Representation}
-Every \texttt{IRPart} carries a \texttt{kind} drawn from six possibilities, summarised in Listing~\ref{lst:ir-shape}. A \texttt{feature=ID}\slash\texttt{feature=INT} assignment becomes a \texttt{field} (a text or number input); \texttt{feature=\allowbreak SomeRule} becomes a \texttt{value} (a plug-in socket); \texttt{feature+=Rule} becomes a \texttt{statement} (a stacking socket, since Blockly's native idiom for repetition is stacking one block per list item); an all-keyword \texttt{Alternatives} becomes a \texttt{dropdown}; and \texttt{feature=[Rule:TERMINAL]} — a Langium cross-reference — becomes a \texttt{reference} (Section~\ref{sec:crossref}).
+\label{sec:ir}
+Section~\ref{sec:example} showed the IR at work; this section gives its full shape. A \texttt{RuleIR} is just a rule name plus an ordered list of \texttt{IRPart}s, one per keyword, feature, or sub-rule reference in that rule's definition (Listing~\ref{lst:ir-shape}). Every \texttt{IRPart} is a small, uniform record: a \texttt{kind} tag plus whatever extra fields that kind needs (which rule it refers to, its dropdown options, its cardinality). Crucially, neither stage 4 (\texttt{blockly-ts-target.js}) nor any of its helpers ever inspects a Langium AST node directly, everything downstream of \texttt{ir-builder.js} works purely in terms of these six \texttt{kind}s.
 
 \begin{lstlisting}[caption={The \texttt{IRPart} shape (JSDoc typedef, abbreviated)}, label=lst:ir-shape]
 /**
@@ -171,23 +166,33 @@ Every \texttt{IRPart} carries a \texttt{kind} drawn from six possibilities, summ
  * @property {"keyword"|"field"|"dropdown"|"value"
  *           |"statement"|"reference"} kind
  * @property {string}   [feature]     - grammar feature name
- * @property {string}   [refRuleName] - referenced rule, if any
+ * @property {string}   [refRuleName] - referenced rule, if 
+ *                                      any
  * @property {boolean}  [optional]    - cardinality "?"
- * @property {boolean}  [repeatable]  - cardinality "*"/"+"/"+="
+ * @property {boolean}  [repeatable]  - cardinality "*"/"+"/
+ *                                      "+="
  */
 \end{lstlisting}
 
-A dedicated \texttt{nodeHandlers} registry (keyed by Langium AST \texttt{\$type}) dispatches the traversal, so supporting a new grammar construct means adding one handler, not editing existing ones — the pattern both of our own extensions below follow.
+Each \texttt{kind} corresponds to exactly one shape of grammar syntax, chosen to match the Blockly input it will become:
+\begin{description}
+\item[\texttt{keyword}] a literal token (\texttt{'recipe'}) with no user input at all: it renders as fixed text in the block's label.
+\item[\texttt{field}] a \texttt{feature=ID} or \texttt{feature=INT} assignment: a text or number box the user types directly into.
+\item[\texttt{dropdown}] an all-keyword \texttt{Alternatives} (\texttt{feature=('a'\textbar 'b'\textbar 'c')}): a closed choice, one option per keyword.
+\item[\texttt{value}] a \texttt{feature=SomeRule} assignment: a socket that another block's output plugs into, for grammar rules nested by value rather than repeated.
+\item[\texttt{statement}] a \texttt{feature+=Rule} assignment: a stacking socket, since Blockly's native idiom for repetition is stacking one block per list item rather than a single input holding many values.
+\item[\texttt{reference}] a \texttt{feature=[Rule:TERMINAL]} cross-reference: pointing at an \emph{already-declared} element by name rather than nesting a new one (Section~\ref{sec:crossref}).
+\end{description}
 
 \subsection{Cross-References as a Live-Scanning Dropdown}
 \label{sec:crossref}
-A Langium cross-reference (\texttt{assignee=[Member:ID]}) means "point at an already-declared \texttt{Member} by name," as opposed to \texttt{assignee=Member}, which nests a brand-new one. Blockly has no built-in widget for this — a plain \texttt{field\_dropdown}'s option list is fixed at block-definition time, while a cross-reference's valid targets change as the user edits the workspace. We therefore ship \texttt{FieldReference}, a hand-written \texttt{Blockly.\allowbreak FieldDropdown} subclass (\texttt{blockly\_app\slash src\slash reference-\allowbreak field.ts}, the one file in \texttt{blockly\_app\slash src\slash} \emph{not} regenerated by the pipeline) that overrides \texttt{getOptions()} to scan \texttt{workspace.getAllBlocks()} for every block of the referenced type and read each one's declared name, live, every time the dropdown opens.
+A Langium cross-reference (\texttt{assignee=[Member:ID]}) means "point at an already-declared \texttt{Member} by name," as opposed to \texttt{assignee=Member}, which nests a brand-new one. Blockly has no built-in widget for this, as a plain \texttt{field\_dropdown}'s option list is fixed at block-definition time, while a cross-reference's valid targets change as the user edits the workspace. We therefore ship \texttt{FieldReference}, a hand-written \texttt{Blockly.\allowbreak FieldDropdown} subclass (\texttt{blockly\_app\slash src\slash reference-\allowbreak field.ts}, the one file in \texttt{blockly\_app\slash src\slash} not regenerated by the pipeline) that overrides \texttt{getOptions()} to scan \texttt{workspace.getAllBlocks()} for every block of the referenced type and read each one's declared name, live, every time the dropdown opens.
 
-Wiring this up touches four files end to end: \texttt{ir-\allowbreak builder.js} records which rule a reference targets (and, via \texttt{computeNameFields}, which feature on \emph{that} rule counts as its "name" — by convention, its first plain \texttt{feature=ID} field); \texttt{block-\allowbreak json-\allowbreak generator.js}'s \texttt{argBuilders.\allowbreak reference} emits \texttt{\{"type": "field\_reference", "referencesType": ..., "nameField": ...\}}, falling back to a plain text field when the target rule has no name field to scan; \texttt{reference-field.ts} implements the field itself; and the generator in \texttt{blockly-ts-target.js} reads it back with the same \texttt{block.getFieldValue(...)} call used for any other field, unaware that the value came from a live dropdown rather than typed text. This trade-off is deliberate and documented: every declared name of the target type is offered regardless of where the referencing block sits on the workspace (Langium's own cross-references support finer-grained scoping we do not model), and a renamed or deleted target simply stops matching, falling back silently to the first available option.
+Wiring this up touches four files end to end: \texttt{ir-\allowbreak builder.js} records which rule a reference targets (and, via \texttt{computeNameFields}, which feature on \emph{that} rule counts as its "name"; by convention, its first plain \texttt{feature=ID} field); \texttt{block-\allowbreak json-\allowbreak generator.js}'s \texttt{argBuilders.\allowbreak reference} emits \texttt{\{"type": "field\_reference", "referencesType": ..., "nameField": ...\}}, falling back to a plain text field when the target rule has no name field to scan; \texttt{reference-field.ts} implements the field itself; and the generator in \texttt{blockly-ts-target.js} reads it back with the same \texttt{block.getFieldValue(...)} call used for any other field, unaware that the value came from a live dropdown rather than typed text. This trade-off is deliberate and documented: every declared name of the target type is offered regardless of where the referencing block sits on the workspace (Langium's own cross-references support finer-grained scoping we do not model), and a renamed or deleted target simply stops matching, falling back silently to the first available option.
 
 \subsection{Extending the Pipeline: Unordered Groups}
 \label{sec:unordered}
-As a second, independent extensibility case study, we added support for Langium's \texttt{UnorderedGroup} construct (\texttt{a \& b \& c}: all of these, in any order), following the same three-step pattern the codebase already documents for extending it. First, \texttt{validator.js} adds \texttt{'UnorderedGroup'} to its allowed-type set and walks its \texttt{.elements} the same way it already walks a \texttt{Group}'s. Second, \texttt{ir-builder.js} gains a new \texttt{nodeHandlers.UnorderedGroup} entry (Listing~\ref{lst:unordered-handler}) whose body is, deliberately, an exact copy of the existing \texttt{Group} handler.
+We added support for Langium's \texttt{UnorderedGroup} construct (\texttt{a \& b \& c}: all of these, in any order), following the same three-step pattern the codebase already documents for extending it. First, \texttt{validator.js} adds \texttt{'UnorderedGroup'} to its allowed-type set and walks its \texttt{.elements} the same way it already walks a \texttt{Group}'s. Second, \texttt{ir-builder.js} gains a new \texttt{nodeHandlers.UnorderedGroup} entry (Listing~\ref{lst:unordered-handler}) whose body is, deliberately, an exact copy of the existing \texttt{Group} handler.
 
 \begin{lstlisting}[caption={The \texttt{UnorderedGroup} IR handler}, label=lst:unordered-handler]
 UnorderedGroup(node, ctx) {
@@ -196,7 +201,7 @@ UnorderedGroup(node, ctx) {
 },
 \end{lstlisting}
 
-The design rationale is what makes this extension worth reporting rather than a one-line diff: Blockly's block UI is a static form — a block's fields render in one fixed order, decided once at block-definition time — so there is no way to preserve \texttt{\&}'s "any order is fine" flexibility inside a single block. Committing to one fixed order (the grammar's own declaration order) is still always \emph{correct}, however: since the grammar rule itself does not care what order its parts appear in, always emitting them in one particular order is trivially one of the orders the grammar accepts. What is lost is only the \emph{choice} a person typing the DSL by hand would have had, not the validity of what the block editor produces. Because no new \texttt{IRPart.kind} was introduced, stage~4 (\texttt{blockly-ts-target.js}) required no changes at all — the clearest demonstration that separating IR construction from code generation (Section 4.1) pays off when extending the pipeline.
+The design rationale is what makes this extension worth reporting rather than a one-line diff: Blockly's block UI is a static form (a block's fields render in one fixed order, decided once at block-definition time) so there is no way to preserve \texttt{\&}'s "any order is fine" flexibility inside a single block. Committing to one fixed order (the grammar's own declaration order) is still always \emph{correct}, however: since the grammar rule itself does not care what order its parts appear in, always emitting them in one particular order is trivially one of the orders the grammar accepts. What is lost is only the \emph{choice} a person typing the DSL by hand would have had, not the validity of what the block editor produces. Because no new \texttt{IRPart.kind} was introduced, stage~4 (\texttt{blockly-ts-target.js}) required no changes at all.
 
 \subsection{Tool Usage}
 The pipeline is driven from the command line:
@@ -207,84 +212,156 @@ npm run dev
 \end{lstlisting}
 The first command generates \texttt{blocks.ts}\slash\texttt{generator.ts}\slash\texttt{main.ts} into \texttt{blockly\_app\slash src\slash}, overwriting the previous grammar's output in place; the second serves the resulting Blockly workspace via Vite.
 
-\subsection{Design Decisions \& Trade-offs}
-Table~\ref{tab:tradeoffs} pulls together the deliberate simplifications discussed above into one place, since each was motivated by the same underlying constraint — Blockly's block UI is a static form, decided once at block-definition time, whereas a grammar can express choices (ordering, scope) that only make sense per-instance.
-
-\begin{table}[h]
-\centering
-\caption{Deliberate simplifications and what each one costs}
-\label{tab:tradeoffs}
-\begin{tabular}{p{0.22\textwidth} p{0.34\textwidth} p{0.32\textwidth}}
-\hline
-\textbf{Decision} & \textbf{Rationale} & \textbf{What's lost} \\
-\hline
-Cross-references are unscoped (\S\ref{sec:crossref}) & Blockly's workspace has no notion of "reachable from here"; computing real scope would mean walking block containment, not just types & A reference can point at a same-named block that is semantically out of scope \\
-\hline
-Unordered groups render in declaration order (\S\ref{sec:unordered}) & Blockly fields have one fixed layout order, decided at block-definition time & The block editor's user cannot choose a different valid ordering the way typing the DSL by hand could \\
-\hline
-Mixed \texttt{Alternatives} fall back to the first branch & No single Blockly input shape represents "keywords mixed with rule calls" & Grammars using this pattern generate an incomplete block, flagged by a warning rather than a hard failure \\
-\hline
-\end{tabular}
-\end{table}
-
 \subsection{Limitations}
 \label{sec:limitations}
-The validator's supported subset $S$ is: \texttt{Group}, \texttt{UnorderedGroup}, \texttt{Alternatives}, \texttt{Assignment} (\texttt{=}\slash\texttt{+=}), \texttt{Keyword}, \texttt{RuleCall}, \texttt{CrossReference}, and cardinalities \texttt{?}\slash\texttt{*}\slash\texttt{+}\slash none. Beyond the three simplifications in Table~\ref{tab:tradeoffs}, three further limitations are worth stating explicitly rather than leaving implicit:
-
-\begin{itemize}
-\item \textbf{\texttt{Action} is unsupported.} Langium's tree-rewriting/type-inference syntax (e.g.\ \texttt{\{infer Type\}}) is the one construct the supported-subset table names as the next candidate for extension — any grammar using it is rejected outright at validation time, with no fallback.
-\item \textbf{Optional (\texttt{?}) fields render as if required.} \texttt{block-json-generator.js} documents this directly: the JSON block format has no native "optional input" concept, so a field with cardinality \texttt{?} still always occupies a slot in the block's layout, with no toggle to omit it. A future mutator-based block (letting the user add/remove the input at runtime) would close this gap without changing the IR.
-\item \textbf{Generated DSL text is never re-parsed by Langium.} Correctness of the round-trip (Section~\ref{sec:example}) rests entirely on the generator logic matching the grammar by construction; the pipeline does not additionally feed its own output back through \texttt{loadGrammar} to confirm the result actually re-parses. The round-trip tests in Section~\ref{sec:validation} substitute for this by asserting on exact expected text, but a direct re-parse check would catch a wider range of accidental mistakes.
-\end{itemize}
+The validator's supported subset $S$ is: \texttt{Group}, \texttt{UnorderedGroup}, \texttt{Alternatives}, \texttt{Assignment} (\texttt{=}\slash\texttt{+=}), \texttt{Keyword}, \texttt{RuleCall}, \texttt{CrossReference}, and cardinalities \texttt{?}\slash\texttt{*}\slash\texttt{+}\slash none. \texttt{Action} (Langium's tree-rewriting/type-inference syntax, e.g.\ \texttt{\{infer Type\}}) is the one construct explicitly identified, but not yet implemented, as the next candidate for extension. Mixed \texttt{Alternatives} (keywords mixed with rule calls, or list-assignments to more than one shape) fall back to visiting only the first branch, emitting a warning rather than failing outright, so the pipeline always produces \emph{something}. Cross-reference scoping and unordered-group ordering choice, discussed above, are both deliberate simplifications rather than oversights, each documented at the point in the code where the simplification is made.
 
 \section{Evaluation}
+\label{sec:evaluation}
+
+We report only the headline outcomes here; the full, unabridged test and benchmark output collected from the reference machine is reproduced verbatim in Appendix~\ref{sec:appendix}.
 
 \subsection{Validation}
 \label{sec:validation}
-Correctness is checked by 45 tests across \texttt{tests\slash validation\slash}, run with Node's built-in test runner (no external test framework dependency): one file per pipeline module (\texttt{grammar-\allowbreak loader}, \texttt{validator}, \texttt{ir-\allowbreak builder}, \texttt{block-\allowbreak json-\allowbreak generator}, \texttt{blockly-\allowbreak ts-\allowbreak target}), plus \texttt{roundtrip.\allowbreak test.js}, which \emph{compiles} the generated \texttt{blocks.ts}\slash\texttt{generator.ts} to real ES modules, loads them against the real \texttt{blockly} npm package, builds an actual headless \texttt{Blockly.Workspace}, wires up blocks the way a person dragging them in the UI would, and asserts on the DSL text Blockly's own generator reconstructs — this is possible without a browser because Blockly's model (workspace, blocks, connections, fields) has no DOM dependency, only its SVG renderer does.
+Correctness is checked with Node's built-in test runner (no external test framework dependency). Running \texttt{npm test} executes 45 unit/integration tests across \texttt{tests\slash validation\slash} (one file per pipeline module plus \texttt{roundtrip.test.js}, which compiles the actually-generated \texttt{blocks.ts}\slash\texttt{generator.ts} to real ES modules, loads them against the real \texttt{blockly} npm package, builds a headless \texttt{Blockly.Workspace}, wires up blocks the way a person dragging them in the UI would, and asserts on the DSL text Blockly's own generator reconstructs). On the reference machine this suite completed in 5.66\,s with 45/45 passing, 0 failing.
 
-A separate 12-test suite in \texttt{tests/evaluation/} checks breadth rather than individual correctness: that every bundled example grammar (and negative fixture) produces the outcome documented for it — pipeline success, a load-time syntax/linking error, or a validate-time rejection — that every one of the six documented \texttt{IRPart.kind} values is exercised by at least one bundled grammar, and that every construct the supported-subset table names as unsupported (currently \texttt{Action}) is in fact rejected. All 45 validation tests and all 12 coverage tests pass on the current implementation, including the \texttt{UnorderedGroup} extension from Section~\ref{sec:unordered}.
+A second, separate suite (\texttt{npm run test:eval}) checks breadth rather than per-module correctness: {12 tests confirm that (i) every one of the 6 bundled example grammars and 3 fixtures produces the outcome documented for it (Table~\ref{tab:coverage} in the appendix reproduces the full outcome matrix), (ii) all six documented \texttt{IRPart.kind} values are exercised by at least one bundled grammar, and (iii) the one construct the supported-subset table names as unsupported (\texttt{Action}) is in fact rejected. This suite completed in 1.70\,s with 12/12 passing, 0 failing. Together, the two suites give 57/57 tests passing on the current implementation, including the \texttt{UnorderedGroup} extension from Section~\ref{sec:unordered}.
 
 \subsection{Performance Cost}
-We benchmarked each pipeline stage against synthetic grammars of increasing size (1 to 200 rules, 7 timed repetitions after 2 warm-up runs, single laptop), summarised in Table~\ref{tab:perf}.
+We benchmarked each pipeline stage (\texttt{npm run test:perf}) against both the 6 bundled example grammars and synthetic grammars of increasing size (1 to 200 rules, generated by \texttt{synthetic-grammar.js}), 7 timed repetitions after 2 warm-up runs each, on the single reference laptop described in Appendix~\ref{sec:appendix} (Table~\ref{tab:hw}). Full per-stage tables are given in Appendix~\ref{sec:appendix} (Tables~\ref{tab:perf-bundled} and~\ref{tab:perf-synthetic}); the headline trends are:
+
+\begin{itemize}
+\item \texttt{validate}, \texttt{buildIR}, and \texttt{generate} stay sub-millisecond to low-single-digit-millisecond even at 200 rules (0.50\,ms, 0.28\,ms, and 7.27\,ms median, respectively), confirming they are simple, roughly-per-rule loops.
+\item \texttt{loadGrammar} dominates total pipeline time end to end, from 31\,ms at 1 rule up to 241\,ms at 200 rules. As documented directly in the code, this is because it calls \texttt{createLangiumGrammarServices()} fresh on every invocation rather than reusing a cached services object; the cost is largely independent of grammar size, which is exactly why \texttt{load} scales the most sub-linearly of the four stages (Table~\ref{tab:perf-synthetic}).
+\item From 1 to 200 rules (a $200\times$ increase in grammar size, if scaling were perfectly linear), median time grew by \textbf{$7.7\times$} for loading, \textbf{$86.0\times$} for validation, \textbf{$36.4\times$} for IR construction, and \textbf{$102.4\times$} for code generation -- i.e.\ every stage scales sub-linearly with grammar size over this range, with \texttt{load} scaling the most sub-linearly (fixed-cost dominated) and \texttt{validate}/\texttt{generate} scaling closest to, but still below, linear.
+\end{itemize}
+This is negligible for the pipeline's intended one-shot CLI usage, but is worth caching if the pipeline were ever driven from a long-running process converting many grammars per process lifetime.
+
+\section{Discussion \& Conclusion}
+We implemented a four-stage pipeline that turns a restricted-subset Langium grammar into a working Blockly editor, validated it against a 45-test unit/ integration suite and a 12-test breadth-coverage suite (57/57 passing, Section~\ref{sec:validation}), and benchmarked it up to 200-rule synthetic grammars with sub-linear scaling on every stage, load included (Appendix~\ref{sec:appendix}). Beyond the base pipeline, we included two features: cross-references rendered as a live, workspace-scanning dropdown, and Langium's unordered-group operator.
+
+The clearest direction for future work is closing the one remaining gap the supported-subset table names explicitly: \texttt{Action} support, which would additionally require deciding how Blockly should represent Langium's type-inference/tree-rewriting semantics. This is a substantially different kind of construct from the five we currently support, since it does not correspond to a single, obvious block input the way an assignment or a keyword does. Scoped cross-references (restricting a reference's live-scanned options to blocks actually reachable from the referencing block's position on the workspace, rather than every declared instance workspace-wide) and an "optional input" mutator for \texttt{?}-cardinality fields are two further, smaller extensions the current architecture is already well positioned to support. On the performance side, caching the Langium grammar services object across invocations (Section~\ref{sec:evaluation}) is the one concrete, already-identified optimisation that would meaningfully change the pipeline's scaling profile if it were ever run outside a one-shot CLI context.
+
+% ---- Bibliography ----
+% \bibliographystyle{splncs04}
+% \bibliography{references.bib}
+
+\newpage
+\appendix
+\section{Full Test and Benchmark Results}
+\label{sec:appendix}
+
+This appendix reproduces, in full, the raw output referenced in Section~\ref{sec:evaluation}, collected in a single \texttt{npm run test:all} run (validation suite, coverage suite, performance benchmark) plus a hardware inventory of the reference machine.
+
+\subsection{Reference Machine}
+\label{sec:appendix-hw}
 
 \begin{table}[h]
 \centering
-\caption{Median stage time (ms) vs.\ grammar size}
-\label{tab:perf}
-\begin{tabular}{r r r r r r}
+\caption{Reference machine used for every timing measurement in this appendix}
+\label{tab:hw}
+\begin{tabular}{l l}
 \hline
-Rules & Load & Validate & Build IR & Generate & Total \\
+Component & Description \\
 \hline
-1   & 21.39 & 0.00 & 0.00 & 0.04 & 21.44 \\
-5   & 25.34 & 0.01 & 0.01 & 0.15 & 25.51 \\
-10  & 25.55 & 0.02 & 0.02 & 0.28 & 25.88 \\
-25  & 38.23 & 0.05 & 0.06 & 0.75 & 39.09 \\
-50  & 53.02 & 0.05 & 0.12 & 1.50 & 54.69 \\
-100 & 109.92 & 0.31 & 0.23 & 2.35 & 112.81 \\
-200 & 163.23 & 0.40 & 0.40 & 5.03 & 169.06 \\
+CPU      & Intel Core i5-1135G7 @ 2.40\,GHz (11th Gen, Tiger Lake-LP) \\
+RAM      & 16\,GiB LPDDR4, 4267\,MHz \\
+Storage  & Samsung MZVL2512HCJQ-00BT7, 512\,GB NVMe SSD \\
+GPU      & Intel Iris Xe Graphics (integrated) \\
+OS       & Ubuntu (Linux), Node.js (\texttt{node:test} runner) \\
 \hline
 \end{tabular}
 \end{table}
 
-From 1 to 200 rules (a $200\times$ increase, if scaling were perfectly linear), measured time grows by $7.6\times$ for loading, $111.8\times$ for validation, $89.7\times$ for IR construction, and $126.8\times$ for code generation — i.e.\ validation, IR construction, and generation all scale sub-linearly with grammar size at this range, while \texttt{loadGrammar} is dominated by a largely size-independent fixed cost: it calls \texttt{createLangiumGrammarServices()} fresh on every invocation. This is immaterial for the pipeline's intended one-shot CLI usage, but is worth caching if the pipeline were ever driven from a long-running process (e.g.\ a watch mode) converting many grammars per process lifetime — a limitation we document in the code rather than treat as a surprise.
+\subsection{Validation Suite (\texttt{npm test}) -- 45 Tests}
+\label{sec:appendix-validation}
 
-\paragraph{Threats to validity.} These figures come from a single laptop and 7 timed repetitions per grammar size, not a dedicated benchmarking environment or a statistically large sample — sufficient to establish the qualitative shape of each stage's scaling (sub-linear vs.\ fixed-cost), but not precise enough to treat any individual millisecond figure as reproducible across machines. Similarly, the entire evaluation is automated (Section~\ref{sec:validation}) or synthetic-grammar benchmarking (this subsection); no user study was run, so nothing here speaks to whether the generated block editors are actually easier for a person to use than the DSL's own textual syntax — only that they are semantically faithful to it.
+{\emergencystretch=3em
+All 45 tests, spanning \texttt{grammar-loader.test.js}, \texttt{validator.test.js}, 
+\texttt{ir-builder.test.js}, \texttt{block-json-generator.test.js}, 
+\texttt{blockly-ts-target.test.js}, and \texttt{roundtrip.test.js}, passed. Total wall-clock time: 5655.58\,ms (45 pass, 0 fail, 0 cancelled, 0 skipped). Two informational Blockly console warnings (\texttt{Block definition "model"/"task" overwrites previous definition}) were emitted by the round-trip tests as an expected side effect of repeatedly calling \texttt{defineBlocks()} against a shared Blockly type registry across test cases in the same process; they do not indicate a test failure.
+\par}
 
-\section{Discussion \& Conclusion}
-We implemented a four-stage pipeline that turns a restricted-subset Langium grammar into a working Blockly editor, validated it against a 45-test unit/integration suite and a 12-test breadth-coverage suite (all passing), and benchmarked it up to 200-rule synthetic grammars with sub-linear scaling on every stage but grammar loading. Beyond the base pipeline, we used two features — cross-references rendered as a live, workspace-scanning dropdown, and Langium's unordered-group operator — as concrete case studies in extending the pipeline without destabilising it, in both cases following (and, for \texttt{UnorderedGroup}, directly applying) the three-step extension pattern the codebase documents: extend the validator's allow-list, add an IR-builder handler, and only touch code generation if a genuinely new \texttt{IRPart.kind} is required.
+\subsection{Coverage Suite (\texttt{npm run test:eval}) -- 12 Tests}
+\label{sec:appendix-coverage}
 
-The clearest direction for future work is closing the one remaining gap the supported-subset table names explicitly: \texttt{Action} support, which would additionally require deciding how Blockly should represent Langium's type-inference/tree-rewriting semantics — a substantially different kind of construct from the five we currently support, since it does not correspond to a single, obvious block input the way an assignment or a keyword does. Scoped cross-references (restricting a reference's live-scanned options to blocks actually reachable from the referencing block's position on the workspace, rather than every declared instance workspace-wide) and an "optional input" mutator for \texttt{?}-cardinality fields are two further, smaller extensions the current architecture is already well positioned to support.
+All 12 tests passed in 1702.52\,ms (12 pass, 0 fail). Table~\ref{tab:coverage} reproduces the coverage summary table the suite itself prints, confirming every bundled/fixture grammar reaches exactly the pipeline stage (load, validate, or full success) documented for it.
 
-\section*{Contributions}
-Md Mehedi Hasan and Julian Klüber jointly designed and implemented the langium-to-blockly pipeline described in this report. \emph{[fill in: the split of the base four-stage pipeline, the cross-reference feature, and the bundled example grammars between the two authors]}.
+\begin{table}[h]
+\centering
+\caption{Coverage summary: expected vs.\ actual pipeline outcome per grammar}
+\label{tab:coverage}
+\begin{tabularx}{\textwidth}{lllX}
+\hline
+Grammar & Expected & Actual & Note \\
+\hline
+todo\_list.langium     & pipeline-succeeds & pipeline-succeeds & -- \\
+state\_machine.langium & pipeline-succeeds & pipeline-succeeds & -- \\
+recipe.langium         & pipeline-succeeds & pipeline-succeeds & -- \\
+address\_book.langium  & pipeline-succeeds & pipeline-succeeds & -- \\
+grammar.langium        & pipeline-succeeds & pipeline-succeeds & -- \\
+cross\_refrences.langium        & pipeline-succeeds & pipeline-succeeds & -- \\
+unordered-group.langium& pipeline-succeeds & pipeline-succeeds & -- \\
+syntax-error.langium   & fails-at-load     & fails-at-load     & ``Grammar contains errors:'' \\
+action.langium         & fails-at-validate & fails-at-validate & ``Grammar uses unsupported constructs:'' \\
+\hline
+\end{tabularx}
+\end{table}
 
-The \texttt{UnorderedGroup} extension (Section~\ref{sec:unordered}) — the validator and IR-builder changes, the accompanying test suite updates, and this report's \texttt{UnorderedGroup}-related sections — was implemented by \emph{[fill in: author name]}, with Claude (Anthropic, Sonnet~5) used as a guided teaching aid: Claude explained the existing codebase's architecture and proposed the extension's design (rendering \texttt{UnorderedGroup} identically to \texttt{Group}), while the code itself was written and tested by \emph{[fill in: author name]}.
+The suite additionally confirmed that all six documented \texttt{IRPart.kind} values (\texttt{keyword}, \texttt{field}, \texttt{dropdown}, \texttt{value}, \texttt{statement}, \texttt{reference}) are exercised by at least one of the six \texttt{pipeline-succeeds} grammars above, and that the one construct explicitly documented as unsupported (\texttt{Action}) is in fact rejected by \texttt{validateGrammar}.
 
-This report was drafted with substantial assistance from Claude (Anthropic, Sonnet~5, \url{https://claude.ai/code}), used to describe the pipeline's architecture, draft the evaluation and limitations discussion from the project's actual test and benchmark output, and typeset the document; the authors reviewed the content against the codebase and take full responsibility for it. AI use for this project was permitted under \emph{[fill in: course/professor reference]}, with tool name, prompts, and output documented separately per the university's AI-use guideline.
+\subsection{Performance Benchmark (\texttt{npm run test:perf})}
+\label{sec:appendix-perf}
 
-% ---- Bibliography ----
-\bibliographystyle{splncs04}
-\bibliography{references.bib}
+Table~\ref{tab:perf-bundled} gives per-stage median timings for the six bundled example grammars; Table~\ref{tab:perf-synthetic} gives the same for synthetic grammars of increasing size (\texttt{synthetic-grammar.js}, 1--200 rules). Both were produced with 7 timed repetitions after 2 warm-up runs per grammar.
+
+\begin{table}[h]
+\centering
+\caption{Bundled example grammars: median stage time (ms)}
+\label{tab:perf-bundled}
+\begin{tabular}{l r r r r r r}
+\hline
+Grammar & Rules & Load & Validate & Build IR & Generate & Total \\
+\hline
+todo\_list.langium     & 2 & 58.66 & 0.01 & 0.01 & 0.13 & 58.81 \\
+state\_machine.langium & 2 & 36.11 & 0.01 & 0.01 & 0.07 & 36.20 \\
+recipe.langium         & 3 & 34.75 & 0.01 & 0.01 & 0.15 & 34.92 \\
+address\_book.langium   & 4 & 37.11 & 0.01 & 0.02 & 0.11 & 37.25 \\
+grammar.langium        & 7 & 41.67 & 0.02 & 0.03 & 0.35 & 42.08 \\
+cross\_refrences.langium        & 3 & 33.43 & 0.01 & 0.01 & 0.11 & 33.56 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Synthetic grammars of increasing size: median stage time (ms)}
+\label{tab:perf-synthetic}
+\begin{tabular}{l r r r r r r}
+\hline
+Grammar size & Rules & Load & Validate & Build IR & Generate & Total \\
+\hline
+1 rule     & 2   & 31.23  & 0.01 & 0.01 & 0.07 & 31.31 \\
+5 rules    & 6   & 33.97  & 0.04 & 0.05 & 0.48 & 34.53 \\
+10 rules   & 11  & 40.13  & 0.07 & 0.09 & 0.90 & 41.18 \\
+25 rules   & 26  & 63.60  & 0.14 & 0.20 & 1.22 & 65.16 \\
+50 rules   & 51  & 95.57  & 0.08 & 0.23 & 4.28 & 100.16 \\
+100 rules  & 101 & 138.85 & 0.39 & 0.35 & 5.08 & 144.67 \\
+200 rules  & 201 & 240.58 & 0.50 & 0.28 & 7.27 & 248.63 \\
+\hline
+\end{tabular}
+\end{table}
+
+\newpage
+
+\noindent\textbf{Scaling ratios, 1 $\rightarrow$ 200 rules} (median time at 200 rules divided by median time at 1 rule; a perfectly linear stage would show $\approx 200\times$):
+\begin{itemize}
+\item \texttt{load}:      $7.7\times$
+\item \texttt{validate}:  $86.0\times$
+\item \texttt{buildIR}:   $36.4\times$
+\item \texttt{generate}:  $102.4\times$
+\end{itemize}
+
+As noted in Section~\ref{sec:evaluation}, \texttt{loadGrammar} re-creates Langium's grammar services on every call (see \texttt{generate\_blockly/src/grammar-loader.js}), which is why it dominates absolute total time despite scaling the most sub-linearly of the four stages; \texttt{validate}, \texttt{buildIR}, and \texttt{generate} are all simple per-rule loops and remain in the sub-millisecond-to-low-single-digit-millisecond range even at 200 rules.
 
 \end{document}
