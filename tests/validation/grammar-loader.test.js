@@ -27,7 +27,7 @@ test('loadGrammar rejects a grammar with a parser error (unterminated rule)', as
 });
 
 test('loadGrammar rejects a grammar with a linking error (rule name collides with grammar name)', async () => {
-    // Regression fixture: generate_blockly/input/adress_book.langium used
+    // Regression fixture: generate_blockly/input/address_book.langium used
     // to declare `grammar AddressBook` *and* `entry AddressBook: ...` -
     // Langium treats that as a naming conflict. This used to be silently
     // swallowed because loadGrammar never asked the DocumentBuilder to
@@ -82,7 +82,7 @@ test('every bundled example grammar in generate_blockly/input/ loads without err
         'todo_list.langium',
         'state_machine.langium',
         'recipe.langium',
-        'adress_book.langium',
+        'address_book.langium',
         'grammar.langium',
         'cross_refrences.langium'
     ];

@@ -80,7 +80,7 @@ test('a bare (unassigned) rule reference, e.g. task=Member?, becomes a "value" p
 });
 
 test('merged list-alternatives, (a+=A | b+=B)*, collapse into ONE shared "statement" part', async () => {
-    const grammar = await loadGrammar(inputPath('adress_book.langium'));
+    const grammar = await loadGrammar(inputPath('address_book.langium'));
     const ir = buildIR(grammar);
     const merged = partsOf(ir, 'Contact').find(p => p.kind === 'statement');
 
@@ -146,7 +146,7 @@ hidden terminal WS: /\\s+/;
 });
 
 test('findNameField / computeNameFields identify the first text field per rule, or none', async () => {
-    const grammar = await loadGrammar(inputPath('adress_book.langium'));
+    const grammar = await loadGrammar(inputPath('address_book.langium'));
     const ir = buildIR(grammar);
 
     assert.equal(findNameField(ir.find(r => r.name === 'Contact')), 'name');

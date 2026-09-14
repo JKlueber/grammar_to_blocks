@@ -28,7 +28,7 @@ const CASES = [
     { file: inputPath('todo_list.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('state_machine.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('recipe.langium'), expect: 'pipeline-succeeds' },
-    { file: inputPath('adress_book.langium'), expect: 'pipeline-succeeds' },
+    { file: inputPath('address_book.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('grammar.langium'), expect: 'pipeline-succeeds' },
     { file: inputPath('cross_refrences.langium'), expect: 'pipeline-succeeds' },
     { file: path.join(FIXTURES_DIR, 'syntax-error.langium'), expect: 'fails-at-load' },
