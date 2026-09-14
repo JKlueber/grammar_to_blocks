@@ -20,7 +20,7 @@ test('validateGrammar accepts every bundled example grammar', async () => {
         'recipe.langium',
         'adress_book.langium',
         'grammar.langium',
-        'invalid.langium' // uses CrossReference - part of the supported subset
+        'cross_refrences.langium'
     ];
 
     for (const filename of examples) {

@@ -1,4 +1,4 @@
-grammar ProjectDSL
+grammar CrossRefrences
 
 hidden terminal WS: /\s+/;
 terminal ID: /[_a-zA-Z][\w_]*/;

@@ -62,7 +62,7 @@ with a new `.langium` file — it overwrites `blockly_app/src/blocks.ts`,
 generate_blockly/
   input/                  bundled example grammars (grammar.langium, recipe.langium,
                           todo_list.langium, state_machine.langium, adress_book.langium,
-                          invalid.langium - despite the name, now a supported example)
+                          cross_refrences.langium)
   src/
     parse.js               CLI entry point / pipeline orchestrator
     grammar-loader.js       Step 1: parse .langium text -> Langium AST
