@@ -113,7 +113,7 @@ Task:
 
 \textbf{Step 3: Simplifying to an IR.}\label{step3} The IR builder walks the AST and asks, for every rule and every one of its parts, one question: \emph{what kind of user-facing input does this correspond to?} The answer is recorded as one \texttt{IRPart} per part of the rule (Section~\ref{sec:ir} gives the full picture). For \texttt{Task}, this produces four parts: a \texttt{keyword} for the literal \texttt{'task'}, a \texttt{field} for \texttt{name=ID} (a text box), and two \texttt{dropdown}s for \texttt{priority} and \texttt{done} (closed choices, one option per keyword). For \texttt{Model}, \texttt{items+=Task*} produces a \texttt{statement} part (Blockly's stacking idiom for repetition) recording that \texttt{Task} blocks are what may be stacked there.
 
-\textbf{Step 4: Generating blocks from the IR.}\label{step4} With the AST's complexity already resolved into six plain \texttt{IRPart} kinds, turning the IR into Blockly JSON is now a simple, mechanical per-kind mapping: \texttt{field} becomes \texttt{field\_input}/ \texttt{field\_number}, \texttt{dropdown} becomes \texttt{field\_dropdown}, and \texttt{statement} becomes an \texttt{input\_statement} whose "check" type ties it to the stacked rule's own block. Listing~\ref{lst:todo-json} shows the result for \texttt{Task}: because \texttt{Task} is only ever repeated via \texttt{items+=Task*}, its block also receives a self-typed \texttt{previousStatement}/ \texttt{nextStatement} of \texttt{"task"}, so several \texttt{Task} blocks can stack inside \texttt{Model}'s statement input.
+\textbf{Step 4: Generating blocks from the IR.}\label{step4} With the AST's complexity already resolved into six plain \texttt{IRPart} kinds, turning the IR into Blockly JSON is now a simple, mechanical per-kind mapping: \texttt{field} becomes \texttt{field\_input}/\texttt{field\_number}, \texttt{dropdown} becomes \texttt{field\_dropdown}, and \texttt{statement} becomes an \texttt{input\_statement} whose "check" type ties it to the stacked rule's own block. Listing~\ref{lst:todo-json} shows the result for \texttt{Task}: because \texttt{Task} is only ever repeated via \texttt{items+=Task*}, its block also receives a self-typed \texttt{previousStatement}/\texttt{nextStatement} of \texttt{"task"}, so several \texttt{Task} blocks can stack inside \texttt{Model}'s statement input.
 
 \begin{lstlisting}[caption={Generated block JSON for the \texttt{Task} rule (excerpt)}, label=lst:todo-json, float]
 {
@@ -351,16 +351,6 @@ Grammar size & Rules & Load & Validate & Build IR & Generate & Total \\
 \hline
 \end{tabular}
 \end{table}
-
-\newpage
-
-\noindent\textbf{Scaling ratios, 1 $\rightarrow$ 200 rules} (median time at 200 rules divided by median time at 1 rule; a perfectly linear stage would show $\approx 200\times$):
-\begin{itemize}
-\item \texttt{load}:      $7.7\times$
-\item \texttt{validate}:  $86.0\times$
-\item \texttt{buildIR}:   $36.4\times$
-\item \texttt{generate}:  $102.4\times$
-\end{itemize}
 
 As noted in Section~\ref{sec:evaluation}, \texttt{loadGrammar} re-creates Langium's grammar services on every call (see \texttt{generate\_blockly/src/grammar-loader.js}), which is why it dominates absolute total time despite scaling the most sub-linearly of the four stages; \texttt{validate}, \texttt{buildIR}, and \texttt{generate} are all simple per-rule loops and remain in the sub-millisecond-to-low-single-digit-millisecond range even at 200 rules.
 
