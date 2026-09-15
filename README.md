@@ -51,7 +51,7 @@ toolbox containing one block per parser rule in the grammar, plus a live
 around.
 
 To point the app at a different grammar, just re-run the `parse.js` command
-with a new `.langium` file — it overwrites `blockly_app/src/blocks.ts`,
+with a new `.langium` file; it overwrites `blockly_app/src/blocks.ts`,
 `generator.ts`, and `main.ts` in place.
 
 ---
@@ -100,9 +100,6 @@ vite.config.ts                    Vite root = blockly_app/
 
 ## The pipeline, file by file
 
-Each module has a detailed doc comment at the top of its source file —
-this section is a short summary, not a replacement for reading the code.
-
 **`parse.js`** — CLI entry point. Runs the four stages below in order and
 writes the three generated files to `blockly_app/src/`.
 
@@ -132,8 +129,8 @@ live. Key mappings:
 - `feature+=Rule` → `"statement"` (a stacking input)
 - Bare `(a+=A | b+=B)*` alternatives with distinct features **merge into
   one shared statement input** (`refRuleNames: ["A","B"]`), since Blockly
-  has no per-branch typing — this is what lets `Phone`/`Address` blocks
-  interleave and stack together in the AddressBook example.
+  has no per-branch typing (this is what lets `Phone`/`Address` blocks
+  interleave and stack together in the AddressBook example).
 - Any other kind of mixed `Alternatives` falls back to its first branch
   and emits a warning, rather than crashing.
 
@@ -192,12 +189,12 @@ are recognized by name inside assignments but not converted to blocks).
 | `RuleCall` (reference to another rule) | ✅ |
 | `CrossReference` (`feature=[TargetRule:TERMINAL]`) | ✅ live dropdown, falling back to plain text when the target has no name field |
 | Cardinality `?`, `*`, `+`, none | ✅ |
-| `UnorderedGroup` (`a & b`) | ✅ walked like a `Group` — elements always render/reconstruct in declaration order, not every valid ordering |
+| `UnorderedGroup` (`a & b`) | ✅ walked like a `Group`: elements always render/reconstruct in declaration order, not every valid ordering |
 | `Action` | ❌ |
 | Any other cardinality | ❌ |
 
 Running the validator against an unsupported grammar throws an `Error`
-listing every offending location — nothing is generated.
+listing every offending location.
 
 ---
 
@@ -218,7 +215,7 @@ places:
 
 The cross-reference feature (`CrossReference` → `"reference"` IRPart) is a
 worked example of this pattern, including adding a brand-new custom
-Blockly field — see `reference-field.ts` if you need to add another one.
+Blockly field (see `reference-field.ts` if you need to add another one).
 
 ---
 
@@ -243,7 +240,7 @@ No test framework dependency beyond Node's built-in `node:test` +
 | `ir-builder.test.js` | each documented `IRPart.kind` mapping; merged-alternatives collapse; anonymous-dropdown and mixed-alternatives fallback; `findNameField`/`computeNameFields` |
 | `block-json-generator.test.js` | standalone JSON generator's `argBuilders`, including both cross-reference branches |
 | `blockly-ts-target.test.js` | shared `_or_` check types; value vs. stackable block detection; arg name casing; generated `forBlock` bodies; entry/non-entry toolbox split |
-| `roundtrip.test.js` | compiles real generated `blocks.ts`/`generator.ts` to JS, runs them against a real headless `Blockly.Workspace`, and asserts the reconstructed DSL text matches exactly — the deepest end-to-end check |
+| `roundtrip.test.js` | compiles real generated `blocks.ts`/`generator.ts` to JS, runs them against a real headless `Blockly.Workspace`, and asserts the reconstructed DSL text matches exactly |
 
 **`tests/evaluation/`** — does it work for everything, and how fast?
 
@@ -252,5 +249,3 @@ No test framework dependency beyond Node's built-in `node:test` +
 | `coverage.test.js` | every bundled/fixture grammar produces its expected outcome (success / fails-at-load / fails-at-validate); every documented `IRPart.kind` is exercised somewhere; `Action` is still rejected |
 | `performance.js` | times each pipeline stage for bundled grammars and synthetic grammars of 1–200 rules, printing scaling ratios |
 
-`tsconfig.json` only type-checks `blockly_app/src` — the `generate_blockly/`
-CLI pipeline is plain Node.js ESM and isn't type-checked by `tsc`.
