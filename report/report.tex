@@ -58,7 +58,7 @@
 \begin{abstract}
 Textual grammars are an efficient way to define domain-specific languages (DSLs), but they require users to learn concrete syntax before they can write anything valid. Visual, block-based editors such as Google's Blockly lower this barrier by letting users assemble programs from interlocking blocks instead of typing text, at the cost of someone having to hand-build a block definition and code generator for every DSL.
 
-We present a pipeline that closes this gap automatically: given a Langium grammar restricted to a well-defined subset of constructs, our tool validates it, builds a small intermediate representation (IR) capturing what each grammar rule means as a user-facing input, and emits a ready-to-run Blockly block editor. We describe the pipeline's four stages, two extensibility case studies we carried out ourselves (cross-references rendered as a live, workspace-scanning dropdown field, and Langium's unordered-group operator \texttt{\&}), and validate the implementation against a 45-test unit/integration suite, a 12-test coverage suite, and a performance benchmark across synthetic grammars of up to 200 rules, all executed on the reference machine described in Appendix~\ref{sec:appendix}.
+We present a pipeline that closes this gap automatically: given a Langium grammar restricted to a well-defined subset of constructs, our tool validates it, builds a small intermediate representation (IR) capturing what each grammar rule means as a user-facing input, and emits a ready-to-run Blockly block editor. We describe the pipeline's four stages, two more complex code examples of translating Langium rules into Bockly blocks (cross-references rendered as a live, workspace-scanning dropdown field, and Langium's unordered-group operator \texttt{\&}), and validate the implementation against a 45-test unit/integration suite, a 12-test coverage suite, and a performance benchmark across synthetic grammars of up to 200 rules, all executed on the reference machine described in Appendix~\ref{sec:appendix}.
 \end{abstract}
 
 \section{Introduction}
@@ -178,7 +178,7 @@ Each \texttt{kind} corresponds to exactly one shape of grammar syntax, chosen to
 \begin{description}
 \item[\texttt{keyword}] a literal token (\texttt{'recipe'}) with no user input at all: it renders as fixed text in the block's label.
 \item[\texttt{field}] a \texttt{feature=ID} or \texttt{feature=INT} assignment: a text or number box the user types directly into.
-\item[\texttt{dropdown}] an all-keyword \texttt{Alternatives} (\texttt{feature=('a'\textbar 'b'\textbar 'c')}): a closed choice, one option per keyword.
+\item[\texttt{dropdown}] {\emergencystretch=3em an all-keyword \texttt{Alternatives} (\texttt{feature=('a'\textbar 'b'\textbar 'c')}): a closed choice, one option per keyword. \par}
 \item[\texttt{value}] a \texttt{feature=SomeRule} assignment: a socket that another block's output plugs into, for grammar rules nested by value rather than repeated.
 \item[\texttt{statement}] a \texttt{feature+=Rule} assignment: a stacking socket, since Blockly's native idiom for repetition is stacking one block per list item rather than a single input holding many values.
 \item[\texttt{reference}] a \texttt{feature=[Rule:TERMINAL]} cross-reference: pointing at an \emph{already-declared} element by name rather than nesting a new one (Section~\ref{sec:crossref}).
@@ -219,11 +219,13 @@ The validator's supported subset $S$ is: \texttt{Group}, \texttt{UnorderedGroup}
 \section{Evaluation}
 \label{sec:evaluation}
 
-We report only the headline outcomes here; the full, unabridged test and benchmark output collected from the reference machine is reproduced verbatim in Appendix~\ref{sec:appendix}.
+We report only the most important outcomes here; the full test and benchmark output collected from the reference machine is reproduced in Appendix~\ref{sec:appendix}.
 
 \subsection{Validation}
 \label{sec:validation}
-Correctness is checked with Node's built-in test runner (no external test framework dependency). Running \texttt{npm test} executes 45 unit/integration tests across \texttt{tests\slash validation\slash} (one file per pipeline module plus \texttt{roundtrip.test.js}, which compiles the actually-generated \texttt{blocks.ts}\slash\texttt{generator.ts} to real ES modules, loads them against the real \texttt{blockly} npm package, builds a headless \texttt{Blockly.Workspace}, wires up blocks the way a person dragging them in the UI would, and asserts on the DSL text Blockly's own generator reconstructs). On the reference machine this suite completed in 5.66\,s with 45/45 passing, 0 failing.
+{\emergencystretch=3em
+Correctness is checked with Node's built-in test runner. Running \texttt{npm test} executes 45 unit/integration tests across \texttt{tests\slash validation\slash} (one file per pipeline module plus \texttt{roundtrip.test.js}, which compiles the actually-generated \texttt{blocks.ts}\slash\texttt{generator.ts} to real ES modules, loads them against the real \texttt{blockly} npm package, builds a headless \texttt{Blockly.Workspace}, wires up blocks the way a person dragging them in the UI would, and asserts on the DSL text Blockly's own generator reconstructs). On the reference machine this suite completed in 5.66\,s with 45/45 passing, 0 failing.
+\par}
 
 A second, separate suite (\texttt{npm run test:eval}) checks breadth rather than per-module correctness: {12 tests confirm that (i) every one of the 6 bundled example grammars and 3 fixtures produces the outcome documented for it (Table~\ref{tab:coverage} in the appendix reproduces the full outcome matrix), (ii) all six documented \texttt{IRPart.kind} values are exercised by at least one bundled grammar, and (iii) the one construct the supported-subset table names as unsupported (\texttt{Action}) is in fact rejected. This suite completed in 1.70\,s with 12/12 passing, 0 failing. Together, the two suites give 57/57 tests passing on the current implementation, including the \texttt{UnorderedGroup} extension from Section~\ref{sec:unordered}.
 
@@ -233,12 +235,12 @@ We benchmarked each pipeline stage (\texttt{npm run test:perf}) against both the
 \begin{itemize}
 \item \texttt{validate}, \texttt{buildIR}, and \texttt{generate} stay sub-millisecond to low-single-digit-millisecond even at 200 rules (0.50\,ms, 0.28\,ms, and 7.27\,ms median, respectively), confirming they are simple, roughly-per-rule loops.
 \item \texttt{loadGrammar} dominates total pipeline time end to end, from 31\,ms at 1 rule up to 241\,ms at 200 rules. As documented directly in the code, this is because it calls \texttt{createLangiumGrammarServices()} fresh on every invocation rather than reusing a cached services object; the cost is largely independent of grammar size, which is exactly why \texttt{load} scales the most sub-linearly of the four stages (Table~\ref{tab:perf-synthetic}).
-\item From 1 to 200 rules (a $200\times$ increase in grammar size, if scaling were perfectly linear), median time grew by \textbf{$7.7\times$} for loading, \textbf{$86.0\times$} for validation, \textbf{$36.4\times$} for IR construction, and \textbf{$102.4\times$} for code generation -- i.e.\ every stage scales sub-linearly with grammar size over this range, with \texttt{load} scaling the most sub-linearly (fixed-cost dominated) and \texttt{validate}/\texttt{generate} scaling closest to, but still below, linear.
 \end{itemize}
+
 This is negligible for the pipeline's intended one-shot CLI usage, but is worth caching if the pipeline were ever driven from a long-running process converting many grammars per process lifetime.
 
 \section{Discussion \& Conclusion}
-We implemented a four-stage pipeline that turns a restricted-subset Langium grammar into a working Blockly editor, validated it against a 45-test unit/ integration suite and a 12-test breadth-coverage suite (57/57 passing, Section~\ref{sec:validation}), and benchmarked it up to 200-rule synthetic grammars with sub-linear scaling on every stage, load included (Appendix~\ref{sec:appendix}). Beyond the base pipeline, we included two features: cross-references rendered as a live, workspace-scanning dropdown, and Langium's unordered-group operator.
+We implemented a four-stage pipeline that turns a restricted-subset Langium grammar into a working Blockly editor. Beyond the base pipeline, we included two features: cross-references rendered as a live, workspace-scanning dropdown, and Langium's unordered-group operator.
 
 The clearest direction for future work is closing the one remaining gap the supported-subset table names explicitly: \texttt{Action} support, which would additionally require deciding how Blockly should represent Langium's type-inference/tree-rewriting semantics. This is a substantially different kind of construct from the five we currently support, since it does not correspond to a single, obvious block input the way an assignment or a keyword does. Scoped cross-references (restricting a reference's live-scanned options to blocks actually reachable from the referencing block's position on the workspace, rather than every declared instance workspace-wide) and an "optional input" mutator for \texttt{?}-cardinality fields are two further, smaller extensions the current architecture is already well positioned to support. On the performance side, caching the Langium grammar services object across invocations (Section~\ref{sec:evaluation}) is the one concrete, already-identified optimisation that would meaningfully change the pipeline's scaling profile if it were ever run outside a one-shot CLI context.
 
@@ -277,9 +279,7 @@ OS       & Ubuntu (Linux), Node.js (\texttt{node:test} runner) \\
 \label{sec:appendix-validation}
 
 {\emergencystretch=3em
-All 45 tests, spanning \texttt{grammar-loader.test.js}, \texttt{validator.test.js}, 
-\texttt{ir-builder.test.js}, \texttt{block-json-generator.test.js}, 
-\texttt{blockly-ts-target.test.js}, and \texttt{roundtrip.test.js}, passed. Total wall-clock time: 5655.58\,ms (45 pass, 0 fail, 0 cancelled, 0 skipped). Two informational Blockly console warnings (\texttt{Block definition "model"/"task" overwrites previous definition}) were emitted by the round-trip tests as an expected side effect of repeatedly calling \texttt{defineBlocks()} against a shared Blockly type registry across test cases in the same process; they do not indicate a test failure.
+All 45 tests, spanning \texttt{grammar-loader.test.js}, \texttt{validator.test.js}, \texttt{ir-builder.test.js}, \texttt{block-json-generator.test.js}, \texttt{blockly-ts-target.test.js}, and \texttt{roundtrip.test.js}, passed. Total wall-clock time: 5655.58\,ms (45 pass, 0 fail, 0 cancelled, 0 skipped). Two informational Blockly console warnings (\texttt{Block definition "model"/"task" overwrites previous definition}) were emitted by the round-trip tests as an expected side effect of repeatedly calling \texttt{defineBlocks()} against a shared Blockly type registry across test cases in the same process; they do not indicate a test failure.
 \par}
 
 \subsection{Coverage Suite (\texttt{npm run test:eval}) -- 12 Tests}
